@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+
+[project]
+name = "unhacs"
+version = "0.1.0"
+description = ""
+authors = [{name = "Ian Fijolek", email = "ian@iamthefij.com"}]
+requires-python = ">=3.8"
+
+dependencies = [
+    "requests"
+]
+
+[project.scripts]
+unhacs = 'unhacs.main:main'
