@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DEFAULT_PACKAGE_FILE = "unhacs.txt"
 
 

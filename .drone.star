@@ -1,10 +1,11 @@
 # Build pipelines
 
 PYTHON_VERSIONS = [
-    "3.6",
-    "3.7",
     "3.8",
     "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
     "latest",
 ]
 
@@ -46,27 +47,21 @@ def tests():
         "name": "tests",
         "workspace": get_workspace(),
         "steps": [
-            tox_step("python:"+version)
+            test_step("python:"+version)
             for version in PYTHON_VERSIONS
-        ] + [
-            tox_step("pypy:"+version, "pypy3", "pypy3")
-            for version in PYPY3_VERSIONS
         ],
     }]
 
 
 # Builds a single python test step
-def tox_step(docker_tag, python_cmd="python", tox_env="py3"):
+def test_step(docker_tag, python_cmd="python"):
     return {
         "name": "test {}".format(docker_tag.replace(":", "")),
         "image": docker_tag,
-        "environment": {
-            "TOXENV": tox_env,
-        },
         "commands": [
             "{} -V".format(python_cmd),
-            "pip install tox",
-            "tox",
+            "pip install poetry",
+            "make lint test",
         ],
     }
 
@@ -130,27 +125,27 @@ def push_to_pypi():
                 "name": "push to test pypi",
                 "image": "python:3",
                 "environment": {
-                    "TWINE_USERNAME": {
-                        "from_secret": "PYPI_USERNAME",
-                    },
-                    "TWINE_PASSWORD": {
+                    "POETRY_PYPI_TOKEN_TESTPYPI": {
                         "from_secret": "TEST_PYPI_PASSWORD",
                     },
                 },
-                "commands": ["make upload-test"],
+                "commands": [
+                    "pip install poetry",
+                    "make upload-test",
+                ],
             },
             {
                 "name": "push to pypi",
                 "image": "python:3",
                 "environment": {
-                    "TWINE_USERNAME": {
-                        "from_secret": "PYPI_USERNAME",
-                    },
-                    "TWINE_PASSWORD": {
+                    "POETRY_PYPI_TOKEN_PYPI": {
                         "from_secret": "PYPI_PASSWORD",
                     },
                 },
-                "commands": ["make upload"],
+                "commands": [
+                    "pip install poetry",
+                    "make upload",
+                ],
                 "when": {
                     "event": ["tag"],
                 },

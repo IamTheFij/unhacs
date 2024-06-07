@@ -17,6 +17,10 @@ install:
 .PHONY: devenv
 devenv: install
 
+.PHONY: lint
+lint:
+	poetry run pre-commit run --all-files
+
 # Runs tests
 .PHONY: test
 test:
@@ -58,7 +62,7 @@ dist-clean: clean
 # Install pre-commit hooks
 .PHONY: install-hooks
 install-hooks: devenv
-	pre-commit install -f --install-hooks
+	poetry run pre-commit install -f --install-hooks
 
 # Generates test coverage
 .coverage:

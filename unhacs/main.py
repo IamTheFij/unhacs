@@ -13,7 +13,6 @@ from unhacs.packages import Package
 from unhacs.packages import read_packages
 from unhacs.packages import write_packages
 
-
 DEFAULT_HASS_CONFIG_PATH = Path(".")
 
 

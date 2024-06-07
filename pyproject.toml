@@ -22,3 +22,7 @@ types-requests = "^2.32.0.20240602"
 
 [tool.poetry.scripts]
 unhacs = 'unhacs.main:main'
+
+[tool.isort]
+force_single_line = true
+profile = "black"
