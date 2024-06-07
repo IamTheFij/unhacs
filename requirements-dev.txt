@@ -1,6 +1,0 @@
--e .
-pytest
-coverage
-pre-commit
-mypy
-types-requests
