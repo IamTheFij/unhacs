@@ -18,12 +18,12 @@ install:
 devenv: install
 
 .PHONY: lint
-lint:
+lint: devenv
 	poetry run pre-commit run --all-files
 
 # Runs tests
 .PHONY: test
-test:
+test: devenv
 	poetry run pytest
 
 # Builds wheel for package to upload
@@ -65,7 +65,7 @@ install-hooks: devenv
 	poetry run pre-commit install -f --install-hooks
 
 # Generates test coverage
-.coverage:
+.coverage: devenv
 	poetry run pytest
 
 # Builds coverage html
