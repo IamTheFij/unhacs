@@ -52,6 +52,20 @@ For a more detailed output, add the `--verbose` flag:
 unhacs list --verbose
 ```
 
+### List tags
+
+To list all tags for a package, use the `tags` command followed by the name of the package:
+
+```bash
+unhacs tags <package_url>
+```
+
+The number or returned tags is limited to 10 by default. To change this, add the `--limit` flag:
+
+```bash
+unhacs tags <package_url> --limit 20
+```
+
 ### Remove a package
 
 To remove a package, use the `remove` command followed by the name of the package:
@@ -72,6 +86,14 @@ To upgrade specific packages, add their names after the `upgrade` command:
 
 ```bash
 unhacs upgrade <package_name_1> <package_name_2> ...
+```
+
+## Use git tags
+
+By default, identification of releases uses the GitHub API. If you want to use git tags instead, you can add the `--git-tags` flag to the base command:
+
+```bash
+unhacs --git-tags add <package_url>
 ```
 
 ## License
