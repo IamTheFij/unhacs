@@ -12,6 +12,9 @@ from zipfile import ZipFile
 import requests
 import yaml
 
+from unhacs.git import get_ref_zip
+from unhacs.git import get_repo_tags
+
 DEFAULT_HASS_CONFIG_PATH: Path = Path(".")
 DEFAULT_PACKAGE_FILE = Path("unhacs.yaml")
 
@@ -35,29 +38,28 @@ class PackageType(StrEnum):
 
 
 class Package:
-    url: str
-    owner: str
-    name: str
-    version: str
-    download_url: str
-    path: Path | None = None
-    package_type: PackageType = PackageType.INTEGRATION
+    use_git = False
 
     def __init__(
         self,
         url: str,
         version: str | None = None,
         package_type: PackageType = PackageType.INTEGRATION,
+        ignored_versions: set[str] | None = None,
     ):
         self.url = url
         self.package_type = package_type
+        self.ignored_versions = ignored_versions or set()
 
         parts = self.url.split("/")
         self.owner = parts[-2]
         self.name = parts[-1]
 
+        self.download_url: str | None = None
+        self.path: Path | None = None
+
         if not version:
-            self.version, self.download_url = self.fetch_version_release(version)
+            self.version, self.download_url = self.fetch_version_release()
         else:
             self.version = version
 
@@ -87,7 +89,12 @@ class Package:
             "package_type": str(self.package_type),
         }
 
-    def fetch_version_release(self, version: str | None = None) -> tuple[str, str]:
+    def add_ignored_version(self, version: str):
+        self.ignored_versions.add(version)
+
+    def _fetch_version_release_releases(
+        self, version: str | None = None
+    ) -> tuple[str, str]:
         # Fetch the releases from the GitHub API
         response = requests.get(
             f"https://api.github.com/repos/{self.owner}/{self.name}/releases"
@@ -134,6 +141,28 @@ class Package:
             raise ValueError("No filename found in hacs.json")
 
         return version, download_url
+
+    def _fetch_version_release_git(self, version: str | None = None) -> tuple[str, str]:
+        tags = get_repo_tags(self.url)
+        if not tags:
+            raise ValueError(f"No tags found for package {self.name}")
+        if version and version not in tags:
+            raise ValueError(f"Version {version} does not exist for this package")
+
+        tags = [tag for tag in tags if tag not in self.ignored_versions]
+        if not version:
+            version = tags[-1]
+
+        return version, get_ref_zip(self.url, version)
+
+    def fetch_version_release(self, version: str | None = None) -> tuple[str, str]:
+        if self.use_git:
+            return self._fetch_version_release_git(version)
+        else:
+            return self._fetch_version_release_releases(version)
+
+    def fetch_versions(self) -> list[str]:
+        return get_repo_tags(self.url)
 
     def get_hacs_json(self, version: str | None = None) -> dict:
         version = version or self.version

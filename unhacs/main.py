@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from collections.abc import Iterable
 from pathlib import Path
 
+from unhacs.git import get_repo_tags
 from unhacs.packages import DEFAULT_HASS_CONFIG_PATH
 from unhacs.packages import DEFAULT_PACKAGE_FILE
 from unhacs.packages import Package
@@ -29,11 +30,23 @@ def create_parser():
         default=DEFAULT_PACKAGE_FILE,
         help="The path to the package file.",
     )
+    parser.add_argument(
+        "--use-git",
+        "-g",
+        action="store_true",
+        help="Use git to install packages. This will avoid GitHub API limits.",
+    )
 
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     list_parser = subparsers.add_parser("list", description="List installed packages.")
     list_parser.add_argument("--verbose", "-v", action="store_true")
+
+    list_tags_parser = subparsers.add_parser("tags", help="List tags for a package.")
+    list_tags_parser.add_argument("url", type=str, help="The URL of the package.")
+    list_tags_parser.add_argument(
+        "--limit", type=int, default=10, help="The number of tags to display."
+    )
 
     add_parser = subparsers.add_parser("add", description="Add or install packages.")
     add_parser.add_argument(
@@ -54,6 +67,12 @@ def create_parser():
         "-u",
         action="store_true",
         help="Update the package if it already exists.",
+    )
+    add_parser.add_argument(
+        "--ignore-versions",
+        "-i",
+        type=str,
+        help="The version of the package to ignore. Multiple can be split by a comma.",
     )
 
     remove_parser = subparsers.add_parser(
@@ -90,16 +109,23 @@ class Unhacs:
         version: str | None = None,
         update: bool = False,
         package_type: PackageType = PackageType.INTEGRATION,
+        ignore_versions: set[str] | None = None,
     ):
         """Install and add a package to the lock or install a specific version."""
-        package = Package(url=package_url, version=version, package_type=package_type)
+        package = Package(
+            package_url,
+            version=version,
+            package_type=package_type,
+            ignored_versions=ignore_versions,
+        )
         packages = self.read_lock_packages()
 
         # Raise an error if the package is already in the list
-        if package in packages:
+        existing_package = next((p for p in packages if p.url == package.url), None)
+        if existing_package:
             if update:
                 # Remove old version of the package
-                packages = [p for p in packages if p != package]
+                packages = [p for p in packages if p.url != package.url]
             else:
                 raise ValueError("Package already exists in the list")
 
@@ -119,7 +145,7 @@ class Unhacs:
                 if p.name in package_names
             ]
 
-        upgrade_packages: list[Package] = []
+        outdated_packages: list[Package] = []
         latest_packages = [p.get_latest() for p in installed_packages]
         for installed_package, latest_package in zip(
             installed_packages, latest_packages
@@ -128,16 +154,12 @@ class Unhacs:
                 print(
                     f"upgrade {installed_package.name} from {installed_package.version} to {latest_package.version}"
                 )
-                upgrade_packages.append(latest_package)
+                outdated_packages.append(latest_package)
 
-        if not upgrade_packages:
-            print("Nothing to upgrade")
+        if outdated_packages and input("Upgrade all packages? (y/N) ").lower() != "y":
             return
 
-        if input("Upgrade all packages? (y/N) ").strip().lower() != "y":
-            return
-
-        for installed_package in upgrade_packages:
+        for installed_package in outdated_packages:
             installed_package.install(self.hass_config)
 
         # Update lock file to latest now that we know they are uograded
@@ -150,6 +172,11 @@ class Unhacs:
         """List installed packages and their versions."""
         for package in get_installed_packages():
             print(package.verbose_str() if verbose else str(package))
+
+    def list_tags(self, url: str, limit: int = 10):
+        print(f"Tags for {url}:")
+        for tag in get_repo_tags(url)[-1 * limit :]:
+            print(tag)
 
     def remove_packages(self, package_names: list[str]):
         """Remove installed packages and uodate lock."""
@@ -176,6 +203,7 @@ def main():
     args = parser.parse_args()
 
     unhacs = Unhacs(args.config, args.package_file)
+    Package.use_git = args.use_git
 
     if args.subcommand == "add":
         # If a file was provided, update all packages based on the lock file
@@ -187,15 +215,26 @@ def main():
                     package.version,
                     update=True,
                     package_type=package.package_type,
+                    ignore_versions=package.ignored_versions,
                 )
         elif args.url:
             unhacs.add_package(
-                args.url, args.version, args.update, package_type=args.type
+                args.url,
+                version=args.version,
+                update=args.update,
+                package_type=args.type,
+                ignore_versions=(
+                    {version for version in args.ignore_versions.split(",")}
+                    if args.ignore_versions
+                    else None
+                ),
             )
         else:
             raise ValueError("Either a file or a URL must be provided")
     elif args.subcommand == "list":
         unhacs.list_packages(args.verbose)
+    elif args.subcommand == "tags":
+        unhacs.list_tags(args.url, limit=args.limit)
     elif args.subcommand == "remove":
         unhacs.remove_packages(args.packages)
     elif args.subcommand == "upgrade":

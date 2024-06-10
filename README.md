@@ -40,6 +40,20 @@ For a more detailed output, add the `--verbose` flag:
 unhacs list --verbose
 ```
 
+### List tags
+
+To list all tags for a package, use the `tags` command followed by the name of the package:
+
+```bash
+unhacs tags <package_url>
+```
+
+The number or returned tags is limited to 10 by default. To change this, add the `--limit` flag:
+
+```bash
+unhacs tags <package_url> --limit 20
+```
+
 ### Remove a package
 
 To remove a package, use the `remove` command followed by the name of the package:
