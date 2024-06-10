@@ -35,7 +35,10 @@ class Package:
     def __init__(self, url: str, version: str | None = None, name: str | None = None):
         self.url = url
 
-        self.version, self.zip_url = self.fetch_version_release(version)
+        if not version:
+            self.version, self.zip_url = self.fetch_version_release(version)
+        else:
+            self.version = version
 
         parts = url.split("/")
         repo = parts[-1]
