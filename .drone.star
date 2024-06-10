@@ -121,6 +121,7 @@ def push_to_pypi():
                     "POETRY_PYPI_TOKEN_TESTPYPI": {
                         "from_secret": "TEST_PYPI_PASSWORD",
                     },
+                    "POETRY_REPOSITORIES_TESTPYPI_URL": "https://test.pypi.org/legacy/",
                 },
                 "commands": [
                     "pip install poetry",
