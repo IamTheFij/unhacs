@@ -102,7 +102,10 @@ class Unhacs:
         for package in latest_packages:
             package.install()
 
-        write_lock_packages(set(latest_packages) | set(packages))
+        latest_lookup = {p.url: p for p in latest_packages}
+        packages = [latest_lookup.get(p.url, p) for p in read_lock_packages()]
+
+        write_lock_packages(packages)
 
     def list_packages(self, verbose: bool = False):
         for package in get_installed_packages():
