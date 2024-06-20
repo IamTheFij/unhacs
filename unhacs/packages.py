@@ -174,4 +174,4 @@ def write_lock_packages(
     packages: Iterable[Package], package_file: str = DEFAULT_PACKAGE_FILE
 ):
     with open(package_file, "w") as f:
-        f.writelines(f"{package.serialize()}\n" for package in packages)
+        f.writelines(sorted(f"{package.serialize()}\n" for package in packages))
