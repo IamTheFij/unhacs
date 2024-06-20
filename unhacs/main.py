@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from collections.abc import Iterable
 from pathlib import Path
 
 from unhacs.packages import DEFAULT_HASS_CONFIG_PATH
@@ -59,6 +60,20 @@ def create_parser():
 
 
 class Unhacs:
+    def __init__(
+        self,
+        hass_config: Path = DEFAULT_HASS_CONFIG_PATH,
+        package_file: Path = DEFAULT_PACKAGE_FILE,
+    ):
+        self.hass_config = hass_config
+        self.package_file = package_file
+
+    def read_lock_packages(self) -> list[Package]:
+        return read_lock_packages(self.package_file)
+
+    def write_lock_packages(self, packages: Iterable[Package]):
+        return write_lock_packages(packages, self.package_file)
+
     def add_package(
         self,
         package_url: str,
@@ -66,8 +81,9 @@ class Unhacs:
         version: str | None = None,
         update: bool = False,
     ):
+        """Install and add a package to the lock or install a specific version."""
         package = Package(name=package_name, url=package_url, version=version)
-        packages = read_lock_packages()
+        packages = self.read_lock_packages()
 
         # Raise an error if the package is already in the list
         if package in packages:
@@ -77,18 +93,20 @@ class Unhacs:
             else:
                 raise ValueError("Package already exists in the list")
 
-        package.install()
+        package.install(self.hass_config)
 
         packages.append(package)
-        write_lock_packages(packages)
+        self.write_lock_packages(packages)
 
     def upgrade_packages(self, package_names: list[str]):
         """Uograde to latest version of packages and update lock."""
         if not package_names:
-            installed_packages = get_installed_packages()
+            installed_packages = get_installed_packages(self.hass_config)
         else:
             installed_packages = [
-                p for p in get_installed_packages() if p.name in package_names
+                p
+                for p in get_installed_packages(self.hass_config)
+                if p.name in package_names
             ]
 
         upgrade_packages: list[Package] = []
@@ -106,19 +124,21 @@ class Unhacs:
             return
 
         for installed_package in upgrade_packages:
-            installed_package.install()
+            installed_package.install(self.hass_config)
 
-        # Update lock file to latest now that we know they are upgraded
+        # Update lock file to latest now that we know they are uograded
         latest_lookup = {p.url: p for p in latest_packages}
-        packages = [latest_lookup.get(p.url, p) for p in read_lock_packages()]
+        packages = [latest_lookup.get(p.url, p) for p in self.read_lock_packages()]
 
-        write_lock_packages(packages)
+        self.write_lock_packages(packages)
 
     def list_packages(self, verbose: bool = False):
+        """List installed packages and their versions."""
         for package in get_installed_packages():
             print(package.verbose_str() if verbose else str(package))
 
     def remove_packages(self, package_names: list[str]):
+        """Remove installed packages and uodate lock."""
         packages_to_remove = [
             package
             for package in get_installed_packages()
@@ -126,14 +146,14 @@ class Unhacs:
         ]
         remaining_packages = [
             package
-            for package in read_lock_packages()
+            for package in self.read_lock_packages()
             if package not in packages_to_remove
         ]
 
         for package in packages_to_remove:
-            package.uninstall()
+            package.uninstall(self.hass_config)
 
-        write_lock_packages(remaining_packages)
+        self.write_lock_packages(remaining_packages)
 
 
 def main():
@@ -141,7 +161,7 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
 
-    unhacs = Unhacs()
+    unhacs = Unhacs(args.config, args.package_file)
 
     if args.subcommand == "add":
         # If a file was provided, update all packages based on the lock file
@@ -163,6 +183,7 @@ def main():
         unhacs.upgrade_packages(args.packages)
     else:
         print(f"Command {args.subcommand} is not implemented")
+        exit(1)
 
 
 if __name__ == "__main__":

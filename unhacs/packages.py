@@ -9,7 +9,7 @@ from zipfile import ZipFile
 import requests
 
 DEFAULT_HASS_CONFIG_PATH: Path = Path(".")
-DEFAULT_PACKAGE_FILE = "unhacs.txt"
+DEFAULT_PACKAGE_FILE = Path("unhacs.txt")
 
 
 def extract_zip(zip_file: ZipFile, dest_dir: Path):
@@ -88,9 +88,7 @@ class Package:
         # If no version is provided, use the latest release
         return releases[0]["tag_name"], releases[0]["zipball_url"]
 
-    def install(
-        self, hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH, replace: bool = True
-    ):
+    def install(self, hass_config_path: Path, replace: bool = True):
         # Fetch the release zip with the specified version
         if not self.zip_url:
             _, self.zip_url = self.fetch_version_release(self.version)
@@ -114,7 +112,7 @@ class Package:
                 shutil.move(custom_component, dest)
                 dest.joinpath("unhacs.txt").write_text(self.serialize())
 
-    def uninstall(self, hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH) -> bool:
+    def uninstall(self, hass_config_path: Path) -> bool:
         if self.path:
             shutil.rmtree(self.path)
             return True
@@ -126,9 +124,7 @@ class Package:
 
         return False
 
-    def installed_package(
-        self, hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH
-    ) -> "Package|None":
+    def installed_package(self, hass_config_path: Path) -> "Package|None":
         for custom_component in (hass_config_path / "custom_components").glob("*"):
             unhacs = custom_component / "unhacs.txt"
             if unhacs.exists():
@@ -141,8 +137,8 @@ class Package:
                     return installed_package
         return None
 
-    def outdated(self) -> bool:
-        installed_package = self.installed_package()
+    def is_update(self, hass_config_path: Path) -> bool:
+        installed_package = self.installed_package(hass_config_path)
         return installed_package is None or installed_package.version != self.version
 
 
@@ -161,17 +157,16 @@ def get_installed_packages(
 
 
 # Read a list of Packages from a text file in the plain text format "URL version name"
-def read_lock_packages(package_file: str = DEFAULT_PACKAGE_FILE) -> list[Package]:
-    path = Path(package_file)
-    if path.exists():
-        with path.open() as f:
+def read_lock_packages(package_file: Path = DEFAULT_PACKAGE_FILE) -> list[Package]:
+    if package_file.exists():
+        with package_file.open() as f:
             return [Package.deserialize(line.strip()) for line in f]
     return []
 
 
 # Write a list of Packages to a text file in the format URL version name
 def write_lock_packages(
-    packages: Iterable[Package], package_file: str = DEFAULT_PACKAGE_FILE
+    packages: Iterable[Package], package_file: Path = DEFAULT_PACKAGE_FILE
 ):
-    with open(package_file, "w") as f:
+    with package_file.open("w") as f:
         f.writelines(sorted(f"{package.serialize()}\n" for package in packages))
