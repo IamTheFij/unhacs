@@ -11,7 +11,9 @@ from unhacs.packages import write_lock_packages
 
 
 def create_parser():
-    parser = ArgumentParser()
+    parser = ArgumentParser(
+        description="Unhacs - Command line interface for the Home Assistant Community Store"
+    )
     parser.add_argument(
         "--config",
         "-c",
@@ -29,10 +31,10 @@ def create_parser():
 
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    list_parser = subparsers.add_parser("list")
+    list_parser = subparsers.add_parser("list", description="List installed packages.")
     list_parser.add_argument("--verbose", "-v", action="store_true")
 
-    add_parser = subparsers.add_parser("add")
+    add_parser = subparsers.add_parser("add", description="Add or install packages.")
     add_parser.add_argument(
         "--file", "-f", type=Path, help="The path to a package file."
     )
@@ -50,10 +52,14 @@ def create_parser():
         help="Update the package if it already exists.",
     )
 
-    remove_parser = subparsers.add_parser("remove")
+    remove_parser = subparsers.add_parser(
+        "remove", description="Remove installed packages."
+    )
     remove_parser.add_argument("packages", nargs="+")
 
-    update_parser = subparsers.add_parser("upgrade")
+    update_parser = subparsers.add_parser(
+        "upgrade", description="Upgrade installed packages."
+    )
     update_parser.add_argument("packages", nargs="*")
 
     return parser
