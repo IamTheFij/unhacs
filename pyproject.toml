@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "unhacs"
-version = "0.2.2"
+version = "0.3.0"
 description = "Command line interface to install Home Assistant Community Store packages"
 authors = ["Ian Fijolek <ian@iamthefij.com>"]
 license = "MIT"
