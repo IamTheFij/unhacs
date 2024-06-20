@@ -126,7 +126,11 @@ class Unhacs:
                 )
                 upgrade_packages.append(latest_package)
 
-        if input("Upgrade all packages? (y/N) ").lower() != "y":
+        if not upgrade_packages:
+            print("Nothing to upgrade")
+            return
+
+        if input("Upgrade all packages? (y/N) ").strip().lower() != "y":
             return
 
         for installed_package in upgrade_packages:
