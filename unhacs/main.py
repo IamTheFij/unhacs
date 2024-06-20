@@ -83,25 +83,32 @@ class Unhacs:
         write_lock_packages(packages)
 
     def upgrade_packages(self, package_names: list[str]):
+        """Uograde to latest version of packages and update lock."""
         if not package_names:
-            packages = read_lock_packages()
+            installed_packages = get_installed_packages()
         else:
-            packages = [p for p in read_lock_packages() if p.name in package_names]
+            installed_packages = [
+                p for p in get_installed_packages() if p.name in package_names
+            ]
 
-        latest_packages = [Package(name=p.name, url=p.url) for p in packages]
-        for package, latest_package in zip(packages, latest_packages):
-            if latest_package.outdated():
+        upgrade_packages: list[Package] = []
+        latest_packages = [Package(name=p.name, url=p.url) for p in installed_packages]
+        for installed_package, latest_package in zip(
+            installed_packages, latest_packages
+        ):
+            if latest_package != installed_package:
                 print(
-                    f"upgrade {package.name} from {package.version} to {latest_package.version}"
+                    f"upgrade {installed_package.name} from {installed_package.version} to {latest_package.version}"
                 )
+                upgrade_packages.append(latest_package)
 
-        # Prompt the user to press Y to continue and upgrade all packages, otherwise exit
         if input("Upgrade all packages? (y/N) ").lower() != "y":
             return
 
-        for package in latest_packages:
-            package.install()
+        for installed_package in upgrade_packages:
+            installed_package.install()
 
+        # Update lock file to latest now that we know they are upgraded
         latest_lookup = {p.url: p for p in latest_packages}
         packages = [latest_lookup.get(p.url, p) for p in read_lock_packages()]
 
