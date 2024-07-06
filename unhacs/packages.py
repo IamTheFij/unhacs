@@ -279,6 +279,11 @@ class Package:
         installed_package = self.installed_package(hass_config_path)
         return installed_package is None or installed_package.version != self.version
 
+    def get_latest(self) -> "Package":
+        package = self.to_yaml()
+        package.pop("version")
+        return Package(**package)
+
 
 def get_installed_packages(
     hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH,

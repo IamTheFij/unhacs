@@ -120,7 +120,7 @@ class Unhacs:
             ]
 
         upgrade_packages: list[Package] = []
-        latest_packages = [Package(url=p.url) for p in installed_packages]
+        latest_packages = [p.get_latest() for p in installed_packages]
         for installed_package, latest_package in zip(
             installed_packages, latest_packages
         ):
