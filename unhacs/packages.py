@@ -10,9 +10,10 @@ from typing import cast
 from zipfile import ZipFile
 
 import requests
+import yaml
 
 DEFAULT_HASS_CONFIG_PATH: Path = Path(".")
-DEFAULT_PACKAGE_FILE = Path("unhacs.txt")
+DEFAULT_PACKAGE_FILE = Path("unhacs.yaml")
 
 
 def extract_zip(zip_file: ZipFile, dest_dir: Path):
@@ -64,28 +65,27 @@ class Package:
         return f"{self.name} {self.version}"
 
     def __eq__(self, other):
-        return (
-            self.url == other.url
-            and self.version == other.version
-            and self.name == other.name
-        )
+        return self.url == other.url and self.version == other.version
 
     def verbose_str(self):
         return f"{self.name} {self.version} ({self.url})"
 
-    def serialize(self) -> str:
-        return f"{self.url} {self.version} {self.package_type}"
-
     @staticmethod
-    def deserialize(serialized: str) -> "Package":
-        url, version, package_type = serialized.split()
-
-        # TODO: Use a less ambiguous serialization format that's still easy to read. Maybe TOML?
-        try:
+    def from_yaml(yaml: dict) -> "Package":
+        # Convert package_type to enum
+        package_type = yaml.pop("package_type")
+        if package_type and isinstance(package_type, str):
             package_type = PackageType(package_type)
-        except ValueError:
-            package_type = PackageType.INTEGRATION
-        return Package(url, version, package_type=package_type)
+            yaml["package_type"] = package_type
+
+        return Package(**yaml)
+
+    def to_yaml(self: "Package") -> dict:
+        return {
+            "url": self.url,
+            "version": self.version,
+            "package_type": str(self.package_type),
+        }
 
     def fetch_version_release(self, version: str | None = None) -> tuple[str, str]:
         # Fetch the releases from the GitHub API
@@ -155,17 +155,18 @@ class Package:
         # If a file is found, write it to www/js/<filename>.js and write a file www/js/<filename>-unhacs.txt with the
         # serialized package
 
-        filename = f"{self.name.removeprefix('lovelace-')}.js"
-        print(filename)
-
-        hacs_json = self.get_hacs_json()
-        if hacs_json.get("filename"):
-            filename = hacs_json["filename"]
-            plugin = requests.get(
-                f"https://github.com/{self.owner}/{self.name}/releases/download/{self.version}/{filename}"
-            )
+        valid_filenames: Iterable[str]
+        if filename := self.get_hacs_json().get("filename"):
+            valid_filenames = (cast(str, filename),)
         else:
-            # Get dist file path URL
+            valid_filenames = (
+                f"{self.name.removeprefix('lovelace-')}.js",
+                f"{self.name}.js",
+                f"{self.name}-umd.js",
+                f"{self.name}-bundle.js",
+            )
+
+        def real_get(filename) -> requests.Response:
             plugin = requests.get(
                 f"https://raw.githubusercontent.com/{self.owner}/{self.version}/dist/{filename}"
             )
@@ -173,19 +174,28 @@ class Package:
                 plugin = requests.get(
                     f"https://github.com/{self.owner}/{self.name}/releases/download/{self.version}/{filename}"
                 )
-                plugin.raise_for_status()
             if plugin.status_code == 404:
                 plugin = requests.get(
                     f"https://raw.githubusercontent.com/{self.owner}/{self.version}/{filename}"
                 )
 
-        plugin.raise_for_status()
+            plugin.raise_for_status()
+            return plugin
+
+        for filename in valid_filenames:
+            try:
+                plugin = real_get(filename)
+                break
+            except requests.HTTPError:
+                pass
+        else:
+            raise ValueError(f"No valid filename found for package {self.name}")
 
         js_path = hass_config_path / "www" / "js"
         js_path.mkdir(parents=True, exist_ok=True)
         js_path.joinpath(filename).write_text(plugin.text)
 
-        js_path.joinpath(f"{filename}-unhacs.txt").write_text(self.serialize())
+        yaml.dump(self.to_yaml(), js_path.joinpath(f"{filename}-unhacs.yaml").open("w"))
 
     def install_integration(self, hass_config_path: Path):
         zipball_url = f"https://codeload.github.com/{self.owner}/{self.name}/zip/refs/tags/{self.version}"
@@ -196,17 +206,13 @@ class Package:
             tmpdir = Path(tempdir)
             extract_zip(ZipFile(BytesIO(response.content)), tmpdir)
 
-            # If an integration, check for a custom_component directory and install contents
-            # If not present, check the hacs.json file for content_in_root to true, if so install
-            # the root to custom_components/<package_name>
-            hacs_json = json.loads((tmpdir / "hacs.json").read_text())
-
             source, dest = None, None
             for custom_component in tmpdir.glob("custom_components/*"):
                 source = custom_component
                 dest = hass_config_path / "custom_components" / custom_component.name
                 break
             else:
+                hacs_json = json.loads((tmpdir / "hacs.json").read_text())
                 if hacs_json.get("content_in_root"):
                     source = tmpdir
                     dest = hass_config_path / "custom_components" / self.name
@@ -218,10 +224,9 @@ class Package:
             shutil.rmtree(dest, ignore_errors=True)
             shutil.move(source, dest)
 
-            dest.joinpath("unhacs.txt").write_text(self.serialize())
+            yaml.dump(self.to_yaml(), dest.joinpath("unhacs.yaml").open("w"))
 
     def install(self, hass_config_path: Path):
-        print(self.package_type)
         if self.package_type == PackageType.PLUGIN:
             self.install_plugin(hass_config_path)
         elif self.package_type == PackageType.INTEGRATION:
@@ -235,6 +240,7 @@ class Package:
                 shutil.rmtree(self.path)
             else:
                 self.path.unlink()
+                self.path.with_name(f"{self.path.name}-unhacs.yaml").unlink()
             return True
 
         installed_package = self.installed_package(hass_config_path)
@@ -246,9 +252,9 @@ class Package:
 
     def installed_package(self, hass_config_path: Path) -> "Package|None":
         for custom_component in (hass_config_path / "custom_components").glob("*"):
-            unhacs = custom_component / "unhacs.txt"
+            unhacs = custom_component / "unhacs.yaml"
             if unhacs.exists():
-                installed_package = Package.deserialize(unhacs.read_text())
+                installed_package = Package.from_yaml(yaml.safe_load(unhacs.open()))
                 installed_package.path = custom_component
                 if (
                     installed_package.name == self.name
@@ -256,10 +262,10 @@ class Package:
                 ):
                     return installed_package
 
-        for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.txt"):
-            installed_package = Package.deserialize(js_unhacs.read_text())
+        for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.yaml"):
+            installed_package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
             installed_package.path = js_unhacs.with_name(
-                js_unhacs.name.removesuffix("-unhacs.txt")
+                js_unhacs.name.removesuffix("-unhacs.yaml")
             )
             if (
                 installed_package.name == self.name
@@ -278,15 +284,19 @@ def get_installed_packages(
     hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH,
 ) -> list[Package]:
     packages = []
+
+    # Integration packages
     for custom_component in (hass_config_path / "custom_components").glob("*"):
-        unhacs = custom_component / "unhacs.txt"
+        unhacs = custom_component / "unhacs.yaml"
         if unhacs.exists():
-            package = Package.deserialize(unhacs.read_text())
+            package = Package.from_yaml(yaml.safe_load(unhacs.open()))
             package.path = custom_component
             packages.append(package)
-    for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.txt"):
-        package = Package.deserialize(js_unhacs.read_text())
-        package.path = js_unhacs.with_name(js_unhacs.name.removesuffix("-unhacs.txt"))
+
+    # Plugin packages
+    for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.yaml"):
+        package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
+        package.path = js_unhacs.with_name(js_unhacs.name.removesuffix("-unhacs.yaml"))
         packages.append(package)
 
     return packages
@@ -295,8 +305,10 @@ def get_installed_packages(
 # Read a list of Packages from a text file in the plain text format "URL version name"
 def read_lock_packages(package_file: Path = DEFAULT_PACKAGE_FILE) -> list[Package]:
     if package_file.exists():
-        with package_file.open() as f:
-            return [Package.deserialize(line.strip()) for line in f]
+        return [
+            Package.from_yaml(p)
+            for p in yaml.safe_load(package_file.open())["packages"]
+        ]
     return []
 
 
@@ -304,5 +316,4 @@ def read_lock_packages(package_file: Path = DEFAULT_PACKAGE_FILE) -> list[Packag
 def write_lock_packages(
     packages: Iterable[Package], package_file: Path = DEFAULT_PACKAGE_FILE
 ):
-    with package_file.open("w") as f:
-        f.writelines(sorted(f"{package.serialize()}\n" for package in packages))
+    yaml.dump({"packages": [p.to_yaml() for p in packages]}, package_file.open("w"))
