@@ -5,6 +5,7 @@ from pathlib import Path
 from unhacs.packages import DEFAULT_HASS_CONFIG_PATH
 from unhacs.packages import DEFAULT_PACKAGE_FILE
 from unhacs.packages import Package
+from unhacs.packages import PackageType
 from unhacs.packages import get_installed_packages
 from unhacs.packages import read_lock_packages
 from unhacs.packages import write_lock_packages
@@ -38,10 +39,13 @@ def create_parser():
     add_parser.add_argument(
         "--file", "-f", type=Path, help="The path to a package file."
     )
-    add_parser.add_argument("url", nargs="?", type=str, help="The URL of the package.")
     add_parser.add_argument(
-        "name", type=str, nargs="?", help="The name of the package."
+        "--type",
+        "-t",
+        type=PackageType,
+        help="The type of the package. Defaults to 'integration'.",
     )
+    add_parser.add_argument("url", nargs="?", type=str, help="The URL of the package.")
     add_parser.add_argument(
         "--version", "-v", type=str, help="The version of the package."
     )
@@ -83,12 +87,12 @@ class Unhacs:
     def add_package(
         self,
         package_url: str,
-        package_name: str | None = None,
         version: str | None = None,
         update: bool = False,
+        package_type: PackageType = PackageType.INTEGRATION,
     ):
         """Install and add a package to the lock or install a specific version."""
-        package = Package(name=package_name, url=package_url, version=version)
+        package = Package(url=package_url, version=version, package_type=package_type)
         packages = self.read_lock_packages()
 
         # Raise an error if the package is already in the list
@@ -116,7 +120,7 @@ class Unhacs:
             ]
 
         upgrade_packages: list[Package] = []
-        latest_packages = [Package(name=p.name, url=p.url) for p in installed_packages]
+        latest_packages = [Package(url=p.url) for p in installed_packages]
         for installed_package, latest_package in zip(
             installed_packages, latest_packages
         ):
@@ -179,10 +183,15 @@ def main():
             packages = read_lock_packages(args.file)
             for package in packages:
                 unhacs.add_package(
-                    package.url, package.name, package.version, update=True
+                    package.url,
+                    package.version,
+                    update=True,
+                    package_type=package.package_type,
                 )
         elif args.url:
-            unhacs.add_package(args.url, args.name, args.version, args.update)
+            unhacs.add_package(
+                args.url, args.version, args.update, package_type=args.type
+            )
         else:
             raise ValueError("Either a file or a URL must be provided")
     elif args.subcommand == "list":
