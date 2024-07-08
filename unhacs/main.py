@@ -125,6 +125,8 @@ class Unhacs:
 
     def upgrade_packages(self, package_names: list[str]):
         """Uograde to latest version of packages and update lock."""
+        installed_packages: Iterable[Package]
+
         if not package_names:
             installed_packages = get_installed_packages(self.hass_config)
         else:
@@ -134,7 +136,7 @@ class Unhacs:
                 if p.name in package_names
             ]
 
-        upgrade_packages: list[Package] = []
+        outdated_packages: list[Package] = []
         latest_packages = [p.get_latest() for p in installed_packages]
         for installed_package, latest_package in zip(
             installed_packages, latest_packages
@@ -143,16 +145,12 @@ class Unhacs:
                 print(
                     f"upgrade {installed_package.name} from {installed_package.version} to {latest_package.version}"
                 )
-                upgrade_packages.append(latest_package)
+                outdated_packages.append(latest_package)
 
-        if not upgrade_packages:
-            print("Nothing to upgrade")
+        if outdated_packages and input("Upgrade all packages? (y/N) ").lower() != "y":
             return
 
-        if input("Upgrade all packages? (y/N) ").strip().lower() != "y":
-            return
-
-        for installed_package in upgrade_packages:
+        for installed_package in outdated_packages:
             installed_package.install(self.hass_config)
 
         # Update lock file to latest now that we know they are uograded
