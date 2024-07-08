@@ -201,7 +201,7 @@ class Unhacs:
         packages_to_remove = [
             package
             for package in get_installed_packages()
-            if package.name in package_names
+            if (package.name in package_names or package.url in package_names)
         ]
         remaining_packages = [
             package

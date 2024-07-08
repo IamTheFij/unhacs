@@ -198,6 +198,22 @@ class Package:
 
         yaml.dump(self.to_yaml(), js_path.joinpath(f"{filename}-unhacs.yaml").open("w"))
 
+        # Write to resources
+        resources: list[dict] = []
+        resources_file = hass_config_path / "resources.yaml"
+        if resources_file.exists():
+            resources = yaml.safe_load(resources_file.open()) or []
+
+        if not any(r["url"] == f"/local/js/{filename}" for r in resources):
+            resources.append(
+                {
+                    "url": f"/local/js/{filename}",
+                    "type": "module",
+                }
+            )
+
+        yaml.dump(resources, resources_file.open("w"))
+
     def install_integration(self, hass_config_path: Path):
         """Installs the integration package."""
         zipball_url = get_ref_zip(self.url, self.version)
@@ -239,20 +255,36 @@ class Package:
 
     def uninstall(self, hass_config_path: Path) -> bool:
         """Uninstalls the package if it is installed, returning True if it was uninstalled."""
-        if self.path:
-            if self.path.is_dir():
-                shutil.rmtree(self.path)
-            else:
-                self.path.unlink()
-                self.path.with_name(f"{self.path.name}-unhacs.yaml").unlink()
-            return True
+        if not self.path:
+            print("No path found for package, searching...")
+            if installed_package := self.installed_package(hass_config_path):
+                installed_package.uninstall(hass_config_path)
+                return True
 
-        installed_package = self.installed_package(hass_config_path)
-        if installed_package:
-            installed_package.uninstall(hass_config_path)
-            return True
+            return False
 
-        return False
+        print("Removing", self.path)
+
+        if self.path.is_dir():
+            shutil.rmtree(self.path)
+        else:
+            self.path.unlink()
+            self.path.with_name(f"{self.path.name}-unhacs.yaml").unlink()
+
+            # Remove from resources
+            resources_file = hass_config_path / "resources.yaml"
+            if resources_file.exists():
+                with resources_file.open("r") as f:
+                    resources = yaml.safe_load(f) or []
+                new_resources = [
+                    r for r in resources if r["url"] != f"/local/js/{self.path.name}"
+                ]
+                if len(new_resources) != len(resources):
+
+                    with resources_file.open("w") as f:
+                        yaml.dump(new_resources, f)
+
+        return True
 
     def installed_package(self, hass_config_path: Path) -> "Package|None":
         """Returns the installed package if it exists, otherwise None."""
