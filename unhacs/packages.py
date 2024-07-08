@@ -1,6 +1,7 @@
 import json
 import shutil
 import tempfile
+from collections.abc import Generator
 from collections.abc import Iterable
 from enum import StrEnum
 from enum import auto
@@ -113,14 +114,6 @@ class Package:
         version = cast(str, desired_release["tag_name"])
         hacs_json = self.get_hacs_json(version)
 
-        # Based on type, if we have no hacs json, we can provide some possible paths for the download but won't know
-        # If a plugin:
-        # First, check in root/dist/ for a js file named the same as the repo or with "lovelace-" prefix removed
-        # Second will be looking for a realeases for a js file named the same name as the repo or with loveace- prefix removed
-        # Third will be looking in the root dir for a js file named the same as the repo or with loveace- prefix removed
-        # If an integration:
-        # We always use the zipball_url
-
         download_url = None
         if filename := hacs_json.get("filename"):
             for asset in desired_release["assets"]:
@@ -136,6 +129,7 @@ class Package:
         return version, download_url
 
     def get_hacs_json(self, version: str | None = None) -> dict:
+        """Fetches the hacs.json file for the package."""
         version = version or self.version
         response = requests.get(
             f"https://raw.githubusercontent.com/{self.owner}/{self.name}/{version}/hacs.json"
@@ -148,12 +142,7 @@ class Package:
         return response.json()
 
     def install_plugin(self, hass_config_path: Path):
-        # First, check in root/dist/ for a js file named the same as the repo or with "lovelace-" prefix removed
-        # Second will be looking for a realeases for a js file named the same name as the repo or with loveace- prefix removed
-        # Third will be looking in the root dir for a js file named the same as the repo or with loveace- prefix removed
-        # If none of these are found, raise an error
-        # If a file is found, write it to www/js/<filename>.js and write a file www/js/<filename>-unhacs.txt with the
-        # serialized package
+        """Installs the plugin package."""
 
         valid_filenames: Iterable[str]
         if filename := self.get_hacs_json().get("filename"):
@@ -166,28 +155,29 @@ class Package:
                 f"{self.name}-bundle.js",
             )
 
-        def real_get(filename) -> requests.Response:
-            plugin = requests.get(
-                f"https://raw.githubusercontent.com/{self.owner}/{self.version}/dist/{filename}"
-            )
-            if plugin.status_code == 404:
-                plugin = requests.get(
-                    f"https://github.com/{self.owner}/{self.name}/releases/download/{self.version}/{filename}"
-                )
-            if plugin.status_code == 404:
-                plugin = requests.get(
-                    f"https://raw.githubusercontent.com/{self.owner}/{self.version}/{filename}"
-                )
+        def real_get(filename) -> requests.Response | None:
+            urls = [
+                f"https://raw.githubusercontent.com/{self.owner}/{self.version}/dist/{filename}",
+                f"https://github.com/{self.owner}/{self.name}/releases/download/{self.version}/{filename}",
+                f"https://raw.githubusercontent.com/{self.owner}/{self.version}/{filename}",
+            ]
 
-            plugin.raise_for_status()
-            return plugin
+            for url in urls:
+                plugin = requests.get(url)
+
+                if int(plugin.status_code / 100) == 4:
+                    continue
+
+                plugin.raise_for_status()
+
+                return plugin
+
+            return None
 
         for filename in valid_filenames:
-            try:
-                plugin = real_get(filename)
+            plugin = real_get(filename)
+            if plugin:
                 break
-            except requests.HTTPError:
-                pass
         else:
             raise ValueError(f"No valid filename found for package {self.name}")
 
@@ -198,6 +188,7 @@ class Package:
         yaml.dump(self.to_yaml(), js_path.joinpath(f"{filename}-unhacs.yaml").open("w"))
 
     def install_integration(self, hass_config_path: Path):
+        """Installs the integration package."""
         zipball_url = f"https://codeload.github.com/{self.owner}/{self.name}/zip/refs/tags/{self.version}"
         response = requests.get(zipball_url)
         response.raise_for_status()
@@ -227,6 +218,7 @@ class Package:
             yaml.dump(self.to_yaml(), dest.joinpath("unhacs.yaml").open("w"))
 
     def install(self, hass_config_path: Path):
+        """Installs the package."""
         if self.package_type == PackageType.PLUGIN:
             self.install_plugin(hass_config_path)
         elif self.package_type == PackageType.INTEGRATION:
@@ -235,6 +227,7 @@ class Package:
             raise NotImplementedError(f"Unknown package type {self.package_type}")
 
     def uninstall(self, hass_config_path: Path) -> bool:
+        """Uninstalls the package if it is installed, returning True if it was uninstalled."""
         if self.path:
             if self.path.is_dir():
                 shutil.rmtree(self.path)
@@ -251,35 +244,20 @@ class Package:
         return False
 
     def installed_package(self, hass_config_path: Path) -> "Package|None":
-        for custom_component in (hass_config_path / "custom_components").glob("*"):
-            unhacs = custom_component / "unhacs.yaml"
-            if unhacs.exists():
-                installed_package = Package.from_yaml(yaml.safe_load(unhacs.open()))
-                installed_package.path = custom_component
-                if (
-                    installed_package.name == self.name
-                    and installed_package.url == self.url
-                ):
-                    return installed_package
-
-        for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.yaml"):
-            installed_package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
-            installed_package.path = js_unhacs.with_name(
-                js_unhacs.name.removesuffix("-unhacs.yaml")
-            )
-            if (
-                installed_package.name == self.name
-                and installed_package.url == self.url
-            ):
-                return installed_package
+        """Returns the installed package if it exists, otherwise None."""
+        for package in get_installed_packages(hass_config_path, [self.package_type]):
+            if package.url == self.url:
+                return package
 
         return None
 
     def is_update(self, hass_config_path: Path) -> bool:
+        """Returns True if the package is not installed or the installed version is different from the latest."""
         installed_package = self.installed_package(hass_config_path)
         return installed_package is None or installed_package.version != self.version
 
     def get_latest(self) -> "Package":
+        """Returns a new Package representing the latest version of this package."""
         package = self.to_yaml()
         package.pop("version")
         return Package(**package)
@@ -287,24 +265,28 @@ class Package:
 
 def get_installed_packages(
     hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH,
-) -> list[Package]:
-    packages = []
-
+    package_types: Iterable[PackageType] = (
+        PackageType.INTEGRATION,
+        PackageType.PLUGIN,
+    ),
+) -> Generator[Package, None, None]:
     # Integration packages
-    for custom_component in (hass_config_path / "custom_components").glob("*"):
-        unhacs = custom_component / "unhacs.yaml"
-        if unhacs.exists():
-            package = Package.from_yaml(yaml.safe_load(unhacs.open()))
-            package.path = custom_component
-            packages.append(package)
+    if PackageType.INTEGRATION in package_types:
+        for custom_component in (hass_config_path / "custom_components").glob("*"):
+            unhacs = custom_component / "unhacs.yaml"
+            if unhacs.exists():
+                package = Package.from_yaml(yaml.safe_load(unhacs.open()))
+                package.path = custom_component
+                yield package
 
     # Plugin packages
-    for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.yaml"):
-        package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
-        package.path = js_unhacs.with_name(js_unhacs.name.removesuffix("-unhacs.yaml"))
-        packages.append(package)
-
-    return packages
+    if PackageType.PLUGIN in package_types:
+        for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.yaml"):
+            package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
+            package.path = js_unhacs.with_name(
+                js_unhacs.name.removesuffix("-unhacs.yaml")
+            )
+            yield package
 
 
 # Read a list of Packages from a text file in the plain text format "URL version name"
