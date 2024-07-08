@@ -17,13 +17,25 @@ Unhacs provides several commands to manage your Home Assistant packages:
 To add a package, use the `add` command followed by the URL of the package. Optionally, you can specify the package name and version:
 
 ```bash
-unhacs add --url <package_url> --name <package_name> --version <version>
+unhacs add <package_url> --version <version>
 ```
 
 If the package already exists, you can update it by adding the `--update` flag:
 
 ```bash
-unhacs add --url <package_url> --update
+unhacs add <package_url> --update
+```
+
+If the package is a Lovelace plugin, you must specify it using the `--plugin` flag:
+
+```bash
+unhacs add --plugin <package_url>
+```
+
+If you already have a list of packages in a file, you can add them all at once using the `--file` flag:
+
+```bash
+unhacs add --file <file_path>
 ```
 
 ### List packages

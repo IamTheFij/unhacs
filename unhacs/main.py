@@ -32,20 +32,33 @@ def create_parser():
 
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
+    # List installed packages
     list_parser = subparsers.add_parser("list", description="List installed packages.")
     list_parser.add_argument("--verbose", "-v", action="store_true")
 
+    # Add packages
     add_parser = subparsers.add_parser("add", description="Add or install packages.")
-    add_parser.add_argument(
+
+    package_group = add_parser.add_mutually_exclusive_group(required=True)
+    package_group.add_argument(
         "--file", "-f", type=Path, help="The path to a package file."
     )
-    add_parser.add_argument(
-        "--type",
-        "-t",
-        type=PackageType,
-        help="The type of the package. Defaults to 'integration'.",
+    package_group.add_argument(
+        "url", nargs="?", type=str, help="The URL of the package."
     )
-    add_parser.add_argument("url", nargs="?", type=str, help="The URL of the package.")
+
+    package_type_group = add_parser.add_mutually_exclusive_group()
+    package_type_group.add_argument(
+        "--integration",
+        action="store_const",
+        dest="type",
+        const=PackageType.INTEGRATION,
+        default=PackageType.INTEGRATION,
+    )
+    package_type_group.add_argument(
+        "--plugin", action="store_const", dest="type", const=PackageType.PLUGIN
+    )
+
     add_parser.add_argument(
         "--version", "-v", type=str, help="The version of the package."
     )
@@ -56,11 +69,13 @@ def create_parser():
         help="Update the package if it already exists.",
     )
 
+    # Remove packages
     remove_parser = subparsers.add_parser(
         "remove", description="Remove installed packages."
     )
     remove_parser.add_argument("packages", nargs="+")
 
+    # Upgrade packages
     update_parser = subparsers.add_parser(
         "upgrade", description="Upgrade installed packages."
     )
