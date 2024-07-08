@@ -56,11 +56,10 @@ class Package:
         self.owner = parts[-2]
         self.name = parts[-1]
 
-        self.download_url: str | None = None
         self.path: Path | None = None
 
         if not version:
-            self.version, self.download_url = self.fetch_version_release()
+            self.version = self.fetch_version_release()
         else:
             self.version = version
 
@@ -93,9 +92,7 @@ class Package:
     def add_ignored_version(self, version: str):
         self.ignored_versions.add(version)
 
-    def _fetch_version_release_releases(
-        self, version: str | None = None
-    ) -> tuple[str, str]:
+    def _fetch_version_release_releases(self, version: str | None = None) -> str:
         # Fetch the releases from the GitHub API
         response = requests.get(
             f"https://api.github.com/repos/{self.owner}/{self.name}/releases"
@@ -118,24 +115,9 @@ class Package:
             else:
                 raise ValueError(f"Version {version} does not exist for this package")
 
-        version = cast(str, desired_release["tag_name"])
-        hacs_json = self.get_hacs_json(version)
+        return cast(str, desired_release["tag_name"])
 
-        download_url = None
-        if filename := hacs_json.get("filename"):
-            for asset in desired_release["assets"]:
-                if asset["name"] == filename:
-                    download_url = cast(str, asset["browser_download_url"])
-                    break
-        else:
-            download_url = cast(str, desired_release["zipball_url"])
-
-        if not download_url:
-            raise ValueError("No filename found in hacs.json")
-
-        return version, download_url
-
-    def _fetch_version_release_git(self, version: str | None = None) -> tuple[str, str]:
+    def _fetch_version_release_git(self, version: str | None = None) -> str:
         tags = get_repo_tags(self.url)
         if not tags:
             raise ValueError(f"No tags found for package {self.name}")
@@ -146,9 +128,9 @@ class Package:
         if not version:
             version = tags[-1]
 
-        return version, get_ref_zip(self.url, version)
+        return version
 
-    def fetch_version_release(self, version: str | None = None) -> tuple[str, str]:
+    def fetch_version_release(self, version: str | None = None) -> str:
         if self.git_tags:
             return self._fetch_version_release_git(version)
         else:
@@ -218,7 +200,7 @@ class Package:
 
     def install_integration(self, hass_config_path: Path):
         """Installs the integration package."""
-        zipball_url = f"https://codeload.github.com/{self.owner}/{self.name}/zip/refs/tags/{self.version}"
+        zipball_url = get_ref_zip(self.url, self.version)
         response = requests.get(zipball_url)
         response.raise_for_status()
 
