@@ -75,7 +75,7 @@ class Package:
     @staticmethod
     def from_yaml(yaml: dict) -> "Package":
         # Convert package_type to enum
-        package_type = yaml.pop("package_type")
+        package_type = yaml.pop("package_type", None)
         if package_type and isinstance(package_type, str):
             package_type = PackageType(package_type)
             yaml["package_type"] = package_type
