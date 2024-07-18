@@ -67,5 +67,22 @@ def get_repo_tags(repository_url: str) -> list[str]:
     return [tag.name for tag in tags]
 
 
+def get_latest_sha(repository_url: str, branch_name: str) -> str:
+    command = f"git ls-remote {repository_url} {branch_name}"
+    result = subprocess.run(
+        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+
+    # Check for errors
+    if result.returncode != 0:
+        raise Exception(f"Error running command: {command}\n{result.stderr.decode()}")
+
+    for line in result.stdout.decode().split("\n"):
+        if line:
+            return line.partition(" ")[0]
+
+    raise ValueError(f"branch name '{branch_name}' not found for {repository_url}")
+
+
 def get_ref_zip(repository_url: str, tag_name: str) -> str:
     return f"{repository_url}/archive/refs/tags/{tag_name}.zip"

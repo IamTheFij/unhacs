@@ -13,6 +13,7 @@ from zipfile import ZipFile
 import requests
 import yaml
 
+from unhacs.git import get_latest_sha
 from unhacs.git import get_ref_zip
 from unhacs.git import get_repo_tags
 
@@ -36,6 +37,7 @@ def extract_zip(zip_file: ZipFile, dest_dir: Path):
 class PackageType(StrEnum):
     INTEGRATION = auto()
     PLUGIN = auto()
+    FORK = auto()
 
 
 class Package:
@@ -47,10 +49,17 @@ class Package:
         version: str | None = None,
         package_type: PackageType = PackageType.INTEGRATION,
         ignored_versions: set[str] | None = None,
+        branch_name: str | None = None,
+        fork_component: str | None = None,
     ):
+        if package_type == PackageType.FORK and not fork_component:
+            raise ValueError(f"Fork with no component specified {url}@{branch_name}")
+
         self.url = url
         self.package_type = package_type
+        self.fork_component = fork_component
         self.ignored_versions = ignored_versions or set()
+        self.branch_name = branch_name
 
         parts = self.url.split("/")
         self.owner = parts[-2]
@@ -83,11 +92,16 @@ class Package:
         return Package(**yaml)
 
     def to_yaml(self: "Package") -> dict:
-        return {
+        data = {
             "url": self.url,
             "version": self.version,
             "package_type": str(self.package_type),
         }
+
+        if self.branch_name:
+            data["branch_name"] = self.branch_name
+
+        return data
 
     def add_ignored_version(self, version: str):
         self.ignored_versions.add(version)
@@ -130,8 +144,13 @@ class Package:
 
         return version
 
+    def _fetch_latest_sha(self, branch_name: str) -> str:
+        return get_latest_sha(self.url, branch_name)
+
     def fetch_version_release(self, version: str | None = None) -> str:
-        if self.git_tags:
+        if self.branch_name:
+            return self._fetch_latest_sha(self.branch_name)
+        elif self.git_tags:
             return self._fetch_version_release_git(version)
         else:
             return self._fetch_version_release_releases(version)
@@ -234,6 +253,41 @@ class Package:
                 if hacs_json.get("content_in_root"):
                     source = tmpdir
                     dest = hass_config_path / "custom_components" / self.name
+
+            if not source or not dest:
+                raise ValueError("No custom_components directory found")
+
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(dest, ignore_errors=True)
+            shutil.move(source, dest)
+
+            yaml.dump(self.to_yaml(), dest.joinpath("unhacs.yaml").open("w"))
+
+    def install_fork_component(self, hass_config_path: Path):
+        """Installs the integration from hass fork."""
+        assert self.fork_component
+        zipball_url = get_ref_zip(self.url, self.version)
+        response = requests.get(zipball_url)
+        response.raise_for_status()
+
+        with tempfile.TemporaryDirectory(prefix="unhacs-") as tempdir:
+            tmpdir = Path(tempdir)
+            extract_zip(ZipFile(BytesIO(response.content)), tmpdir)
+
+            source, dest = None, None
+            source = tmpdir / "homeassistant" / "components" / self.fork_component
+            if not source.exists() or not source.is_dir():
+                raise ValueError(
+                    f"Could not find {self.fork_component} in {self.url}@{self.version}"
+                )
+
+            # Add version to manifest
+            manifest_file = source / "manifest.json"
+            manifest = json.load(manifest_file.open())
+            manifest["version"] = "0.0.0"
+            json.dump(manifest, manifest_file.open("w"))
+
+            dest = hass_config_path / "custom_components" / source.name
 
             if not source or not dest:
                 raise ValueError("No custom_components directory found")
