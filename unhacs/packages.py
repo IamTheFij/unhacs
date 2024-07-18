@@ -7,14 +7,17 @@ from enum import StrEnum
 from enum import auto
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from typing import cast
 from zipfile import ZipFile
 
 import requests
 import yaml
 
-from unhacs.git import get_ref_zip
+from unhacs.git import get_branch_zip
+from unhacs.git import get_latest_sha
 from unhacs.git import get_repo_tags
+from unhacs.git import get_tag_zip
 
 DEFAULT_HASS_CONFIG_PATH: Path = Path(".")
 DEFAULT_PACKAGE_FILE = Path("unhacs.yaml")
@@ -36,6 +39,7 @@ def extract_zip(zip_file: ZipFile, dest_dir: Path):
 class PackageType(StrEnum):
     INTEGRATION = auto()
     PLUGIN = auto()
+    FORK = auto()
 
 
 class Package:
@@ -47,10 +51,17 @@ class Package:
         version: str | None = None,
         package_type: PackageType = PackageType.INTEGRATION,
         ignored_versions: set[str] | None = None,
+        branch_name: str | None = None,
+        fork_component: str | None = None,
     ):
+        if package_type == PackageType.FORK and not fork_component:
+            raise ValueError(f"Fork with no component specified {url}@{branch_name}")
+
         self.url = url
         self.package_type = package_type
+        self.fork_component = fork_component
         self.ignored_versions = ignored_versions or set()
+        self.branch_name = branch_name
 
         parts = self.url.split("/")
         self.owner = parts[-2]
@@ -64,30 +75,52 @@ class Package:
             self.version = version
 
     def __str__(self):
-        return f"{self.name} {self.version}"
+        name = self.name
+        if self.fork_component:
+            name = f"{self.fork_component} ({name})"
+        version = self.version
+        if self.branch_name:
+            version = f"{version} ({self.branch_name})"
+        return f"{self.package_type}: {name} {version}"
 
     def __eq__(self, other):
-        return self.url == other.url and self.version == other.version
+        return all(
+            (
+                self.url == other.url,
+                self.version == other.version,
+                self.branch_name == other.branch_name,
+                self.fork_component == other.fork_component,
+            )
+        )
 
     def verbose_str(self):
-        return f"{self.name} {self.version} ({self.url})"
+        return f"{str(self)} ({self.url})"
 
     @staticmethod
-    def from_yaml(yaml: dict) -> "Package":
+    def from_yaml(yml: dict) -> "Package":
         # Convert package_type to enum
-        package_type = yaml.pop("package_type", None)
+        package_type = yml.pop("package_type", None)
         if package_type and isinstance(package_type, str):
             package_type = PackageType(package_type)
-            yaml["package_type"] = package_type
+            yml["package_type"] = package_type
 
-        return Package(**yaml)
+        return Package(**yml)
 
     def to_yaml(self: "Package") -> dict:
-        return {
+        data: dict[str, Any] = {
             "url": self.url,
             "version": self.version,
             "package_type": str(self.package_type),
         }
+
+        if self.branch_name:
+            data["branch_name"] = self.branch_name
+        if self.fork_component:
+            data["fork_component"] = self.fork_component
+        if self.ignored_versions:
+            data["ignored_versions"] = self.ignored_versions
+
+        return data
 
     def add_ignored_version(self, version: str):
         self.ignored_versions.add(version)
@@ -130,8 +163,13 @@ class Package:
 
         return version
 
+    def _fetch_latest_sha(self, branch_name: str) -> str:
+        return get_latest_sha(self.url, branch_name)
+
     def fetch_version_release(self, version: str | None = None) -> str:
-        if self.git_tags:
+        if self.branch_name:
+            return self._fetch_latest_sha(self.branch_name)
+        elif self.git_tags:
             return self._fetch_version_release_git(version)
         else:
             return self._fetch_version_release_releases(version)
@@ -216,7 +254,7 @@ class Package:
 
     def install_integration(self, hass_config_path: Path):
         """Installs the integration package."""
-        zipball_url = get_ref_zip(self.url, self.version)
+        zipball_url = get_tag_zip(self.url, self.version)
         response = requests.get(zipball_url)
         response.raise_for_status()
 
@@ -244,12 +282,53 @@ class Package:
 
             yaml.dump(self.to_yaml(), dest.joinpath("unhacs.yaml").open("w"))
 
+    def install_fork_component(self, hass_config_path: Path):
+        """Installs the integration from hass fork."""
+        if not self.fork_component:
+            raise ValueError(f"No fork component specified for {self.verbose_str()}")
+        if not self.branch_name:
+            raise ValueError(f"No branch name specified for {self.verbose_str()}")
+
+        zipball_url = get_branch_zip(self.url, self.branch_name)
+        response = requests.get(zipball_url)
+        response.raise_for_status()
+
+        with tempfile.TemporaryDirectory(prefix="unhacs-") as tempdir:
+            tmpdir = Path(tempdir)
+            extract_zip(ZipFile(BytesIO(response.content)), tmpdir)
+
+            source, dest = None, None
+            source = tmpdir / "homeassistant" / "components" / self.fork_component
+            if not source.exists() or not source.is_dir():
+                raise ValueError(
+                    f"Could not find {self.fork_component} in {self.url}@{self.version}"
+                )
+
+            # Add version to manifest
+            manifest_file = source / "manifest.json"
+            manifest = json.load(manifest_file.open())
+            manifest["version"] = "0.0.0"
+            json.dump(manifest, manifest_file.open("w"))
+
+            dest = hass_config_path / "custom_components" / source.name
+
+            if not source or not dest:
+                raise ValueError("No custom_components directory found")
+
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(dest, ignore_errors=True)
+            shutil.move(source, dest)
+
+            yaml.dump(self.to_yaml(), dest.joinpath("unhacs.yaml").open("w"))
+
     def install(self, hass_config_path: Path):
         """Installs the package."""
         if self.package_type == PackageType.PLUGIN:
             self.install_plugin(hass_config_path)
         elif self.package_type == PackageType.INTEGRATION:
             self.install_integration(hass_config_path)
+        elif self.package_type == PackageType.FORK:
+            self.install_fork_component(hass_config_path)
         else:
             raise NotImplementedError(f"Unknown package type {self.package_type}")
 

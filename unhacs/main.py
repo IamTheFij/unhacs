@@ -12,7 +12,7 @@ from unhacs.packages import read_lock_packages
 from unhacs.packages import write_lock_packages
 
 
-def create_parser():
+def parse_args():
     parser = ArgumentParser(
         description="Unhacs - Command line interface for the Home Assistant Community Store"
     )
@@ -68,13 +68,30 @@ def create_parser():
         dest="type",
         const=PackageType.INTEGRATION,
         default=PackageType.INTEGRATION,
+        help="The package is an integration.",
     )
     package_type_group.add_argument(
-        "--plugin", action="store_const", dest="type", const=PackageType.PLUGIN
+        "--plugin",
+        action="store_const",
+        dest="type",
+        const=PackageType.PLUGIN,
+        help="The package is a JavaScript plugin.",
+    )
+    package_type_group.add_argument(
+        "--forked-component",
+        type=str,
+        dest="component",
+        help="Component name from a forked type.",
     )
 
     add_parser.add_argument(
         "--version", "-v", type=str, help="The version of the package."
+    )
+    add_parser.add_argument(
+        "--branch",
+        "-b",
+        type=str,
+        help="For foked types only, branch that should be used.",
     )
     add_parser.add_argument(
         "--update",
@@ -101,7 +118,20 @@ def create_parser():
     )
     update_parser.add_argument("packages", nargs="*")
 
-    return parser
+    args = parser.parse_args()
+
+    if args.subcommand == "add":
+        # Component implies forked package
+        if args.component and args.type != PackageType.FORK:
+            args.type = PackageType.FORK
+
+        # Branch is only valid for forked packages
+        if args.type != PackageType.FORK and args.branch:
+            raise ValueError(
+                "Branch and component can only be used with forked packages"
+            )
+
+    return args
 
 
 class Unhacs:
@@ -121,19 +151,10 @@ class Unhacs:
 
     def add_package(
         self,
-        package_url: str,
-        version: str | None = None,
+        package: Package,
         update: bool = False,
-        package_type: PackageType = PackageType.INTEGRATION,
-        ignore_versions: set[str] | None = None,
     ):
         """Install and add a package to the lock or install a specific version."""
-        package = Package(
-            package_url,
-            version=version,
-            package_type=package_type,
-            ignored_versions=ignore_versions,
-        )
         packages = self.read_lock_packages()
 
         # Raise an error if the package is already in the list
@@ -201,8 +222,20 @@ class Unhacs:
         packages_to_remove = [
             package
             for package in get_installed_packages()
-            if (package.name in package_names or package.url in package_names)
+            if (
+                package.name in package_names
+                or package.url in package_names
+                or package.fork_component in package_names
+            )
         ]
+
+        if packages_to_remove and input("Remove all packages? (y/N) ").lower() != "y":
+            return
+
+        if package_names and not packages_to_remove:
+            print("No packages found to remove")
+            return
+
         remaining_packages = [
             package
             for package in self.read_lock_packages()
@@ -217,8 +250,7 @@ class Unhacs:
 
 def main():
     # If the sub command is add package, it should pass the parsed arguments to the add_package function and return
-    parser = create_parser()
-    args = parser.parse_args()
+    args = parse_args()
 
     unhacs = Unhacs(args.config, args.package_file)
     Package.git_tags = args.git_tags
@@ -229,23 +261,24 @@ def main():
             packages = read_lock_packages(args.file)
             for package in packages:
                 unhacs.add_package(
-                    package.url,
-                    package.version,
+                    package,
                     update=True,
-                    package_type=package.package_type,
-                    ignore_versions=package.ignored_versions,
                 )
         elif args.url:
             unhacs.add_package(
-                args.url,
-                version=args.version,
-                update=args.update,
-                package_type=args.type,
-                ignore_versions=(
-                    {version for version in args.ignore_versions.split(",")}
-                    if args.ignore_versions
-                    else None
+                Package(
+                    args.url,
+                    version=args.version,
+                    package_type=args.type,
+                    ignored_versions=(
+                        {version for version in args.ignore_versions.split(",")}
+                        if args.ignore_versions
+                        else None
+                    ),
+                    branch_name=args.branch,
+                    fork_component=args.component,
                 ),
+                update=args.update,
             )
         else:
             raise ValueError("Either a file or a URL must be provided")
