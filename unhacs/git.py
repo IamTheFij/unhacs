@@ -84,5 +84,10 @@ def get_latest_sha(repository_url: str, branch_name: str) -> str:
     raise ValueError(f"branch name '{branch_name}' not found for {repository_url}")
 
 
-def get_ref_zip(repository_url: str, tag_name: str) -> str:
+def get_tag_zip(repository_url: str, tag_name: str) -> str:
     return f"{repository_url}/archive/refs/tags/{tag_name}.zip"
+
+def get_branch_zip(repository_url: str, branch_name: str) -> str:
+    return f"{repository_url}/archive/{branch_name}.zip"
+
+ 

@@ -14,7 +14,7 @@ import requests
 import yaml
 
 from unhacs.git import get_latest_sha
-from unhacs.git import get_ref_zip
+from unhacs.git import get_tag_zip
 from unhacs.git import get_repo_tags
 
 DEFAULT_HASS_CONFIG_PATH: Path = Path(".")
@@ -235,7 +235,7 @@ class Package:
 
     def install_integration(self, hass_config_path: Path):
         """Installs the integration package."""
-        zipball_url = get_ref_zip(self.url, self.version)
+        zipball_url = get_tag_zip(self.url, self.version)
         response = requests.get(zipball_url)
         response.raise_for_status()
 
@@ -266,7 +266,7 @@ class Package:
     def install_fork_component(self, hass_config_path: Path):
         """Installs the integration from hass fork."""
         assert self.fork_component
-        zipball_url = get_ref_zip(self.url, self.version)
+        zipball_url = get_tag_zip(self.url, self.version)
         response = requests.get(zipball_url)
         response.raise_for_status()
 
