@@ -13,9 +13,10 @@ from zipfile import ZipFile
 import requests
 import yaml
 
+from unhacs.git import get_branch_zip
 from unhacs.git import get_latest_sha
-from unhacs.git import get_tag_zip
 from unhacs.git import get_repo_tags
+from unhacs.git import get_tag_zip
 
 DEFAULT_HASS_CONFIG_PATH: Path = Path(".")
 DEFAULT_PACKAGE_FILE = Path("unhacs.yaml")
@@ -265,8 +266,10 @@ class Package:
 
     def install_fork_component(self, hass_config_path: Path):
         """Installs the integration from hass fork."""
+        # TODO: Replace asserts with errors
         assert self.fork_component
-        zipball_url = get_tag_zip(self.url, self.version)
+        assert self.branch_name
+        zipball_url = get_branch_zip(self.url, self.branch_name)
         response = requests.get(zipball_url)
         response.raise_for_status()
 
