@@ -158,11 +158,10 @@ class Unhacs:
         packages = self.read_lock_packages()
 
         # Raise an error if the package is already in the list
-        existing_package = next((p for p in packages if p.url == package.url), None)
-        if existing_package:
+        if existing_package := next((p for p in packages if p.same(package)), None):
             if update:
                 # Remove old version of the package
-                packages = [p for p in packages if p.url != package.url]
+                packages = [p for p in packages if p == existing_package]
             else:
                 raise ValueError("Package already exists in the list")
 
@@ -202,8 +201,8 @@ class Unhacs:
             installed_package.install(self.hass_config)
 
         # Update lock file to latest now that we know they are uograded
-        latest_lookup = {p.url: p for p in latest_packages}
-        packages = [latest_lookup.get(p.url, p) for p in self.read_lock_packages()]
+        latest_lookup = {p: p for p in latest_packages}
+        packages = [latest_lookup.get(p, p) for p in self.read_lock_packages()]
 
         self.write_lock_packages(packages)
 

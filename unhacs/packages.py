@@ -86,12 +86,22 @@ class Package:
     def __eq__(self, other):
         return all(
             (
+                self.same(other),
+                self.fork_component == other.fork_component,
+            )
+        )
+
+    def same(self, other):
+        return all(
+            (
                 self.url == other.url,
-                self.version == other.version,
                 self.branch_name == other.branch_name,
                 self.fork_component == other.fork_component,
             )
         )
+
+    def __hash__(self):
+        return hash((self.url, self.branch_name, self.fork_component))
 
     def verbose_str(self):
         return f"{str(self)} ({self.url})"
@@ -368,7 +378,7 @@ class Package:
     def installed_package(self, hass_config_path: Path) -> "Package|None":
         """Returns the installed package if it exists, otherwise None."""
         for package in get_installed_packages(hass_config_path, [self.package_type]):
-            if package.url == self.url:
+            if self.same(package):
                 return package
 
         return None
