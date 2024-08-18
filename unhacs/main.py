@@ -91,7 +91,7 @@ def parse_args():
         "--branch",
         "-b",
         type=str,
-        help="For foked types only, branch that should be used.",
+        help="For forked types only, branch that should be used.",
     )
     add_parser.add_argument(
         "--update",

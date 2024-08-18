@@ -38,6 +38,14 @@ If you already have a list of packages in a file, you can add them all at once u
 unhacs add --file <file_path>
 ```
 
+### Add a component from a forked Home Assistant Core repository
+
+To add a component from a fork of home-assistant/core, use the `--forked-component` flag followed by the URL of the forked repository and then specify the branch with the `--branch` flag:
+
+```bash
+unhacs add --forked-component <forked_repo_url> --branch <branch>
+```
+
 ### List packages
 
 To list all installed packages, use the `list` command:
