@@ -401,15 +401,17 @@ def get_installed_packages(
         PackageType.INTEGRATION,
         PackageType.PLUGIN,
     ),
-) -> Generator[Package, None, None]:
+) -> list[Package]:
     # Integration packages
+    packages: list[Package] = []
+
     if PackageType.INTEGRATION in package_types:
         for custom_component in (hass_config_path / "custom_components").glob("*"):
             unhacs = custom_component / "unhacs.yaml"
             if unhacs.exists():
                 package = Package.from_yaml(yaml.safe_load(unhacs.open()))
                 package.path = custom_component
-                yield package
+                packages.append(package)
 
     # Plugin packages
     if PackageType.PLUGIN in package_types:
@@ -418,7 +420,9 @@ def get_installed_packages(
             package.path = js_unhacs.with_name(
                 js_unhacs.name.removesuffix("-unhacs.yaml")
             )
-            yield package
+            packages.append(package)
+
+    return packages
 
 
 # Read a list of Packages from a text file in the plain text format "URL version name"
