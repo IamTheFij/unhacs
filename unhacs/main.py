@@ -83,6 +83,13 @@ def parse_args():
         dest="component",
         help="Component name from a forked type.",
     )
+    package_type_group.add_argument(
+        "--theme",
+        action="store_const",
+        dest="type",
+        const=PackageType.THEME,
+        help="The package is a theme.",
+    )
 
     add_parser.add_argument(
         "--version", "-v", type=str, help="The version of the package."

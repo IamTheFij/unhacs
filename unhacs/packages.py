@@ -40,6 +40,18 @@ class PackageType(StrEnum):
     INTEGRATION = auto()
     PLUGIN = auto()
     FORK = auto()
+    THEME = auto()
+
+
+def get_install_path(hass_config_path: Path, package_type: PackageType) -> Path:
+    if package_type == PackageType.PLUGIN:
+        return hass_config_path / "www" / "js"
+    elif package_type in (PackageType.INTEGRATION, PackageType.FORK):
+        return hass_config_path / "custom_components"
+    elif package_type == PackageType.THEME:
+        return hass_config_path / "themes"
+    else:
+        raise NotImplementedError(f"Unknown package type {package_type}")
 
 
 class Package:
@@ -200,6 +212,9 @@ class Package:
         response.raise_for_status()
         return response.json()
 
+    def get_install_path(self, hass_config_path: Path) -> Path:
+        return get_install_path(hass_config_path, self.package_type)
+
     def install_plugin(self, hass_config_path: Path):
         """Installs the plugin package."""
 
@@ -240,7 +255,7 @@ class Package:
         else:
             raise ValueError(f"No valid filename found for package {self.name}")
 
-        js_path = hass_config_path / "www" / "js"
+        js_path = self.get_install_path(hass_config_path)
         js_path.mkdir(parents=True, exist_ok=True)
         js_path.joinpath(filename).write_text(plugin.text)
 
@@ -262,6 +277,22 @@ class Package:
 
         yaml.dump(resources, resources_file.open("w"))
 
+    def install_theme_component(self, hass_config_path: Path):
+        filename = self.get_hacs_json().get("filename")
+        if not filename:
+            raise ValueError(f"No filename found for theme {self.name}")
+
+        filename = cast(str, filename)
+        url = f"https://raw.githubusercontent.com/{self.owner}/{self.name}/{self.version}/themes/{filename}"
+        theme = requests.get(url)
+        theme.raise_for_status()
+
+        themes_path = self.get_install_path(hass_config_path)
+        themes_path.mkdir(parents=True, exist_ok=True)
+        themes_path.joinpath(filename).write_text(theme.text)
+
+        yaml.dump(self.to_yaml(), themes_path.joinpath(f"{filename}.unhacs").open("w"))
+
     def install_integration(self, hass_config_path: Path):
         """Installs the integration package."""
         zipball_url = get_tag_zip(self.url, self.version)
@@ -275,13 +306,13 @@ class Package:
             source, dest = None, None
             for custom_component in tmpdir.glob("custom_components/*"):
                 source = custom_component
-                dest = hass_config_path / "custom_components" / custom_component.name
+                dest = self.get_install_path(hass_config_path) / custom_component.name
                 break
             else:
                 hacs_json = json.loads((tmpdir / "hacs.json").read_text())
                 if hacs_json.get("content_in_root"):
                     source = tmpdir
-                    dest = hass_config_path / "custom_components" / self.name
+                    dest = self.get_install_path(hass_config_path) / self.name
 
             if not source or not dest:
                 raise ValueError("No custom_components directory found")
@@ -320,7 +351,7 @@ class Package:
             manifest["version"] = "0.0.0"
             json.dump(manifest, manifest_file.open("w"))
 
-            dest = hass_config_path / "custom_components" / source.name
+            dest = self.get_install_path(hass_config_path) / source.name
 
             if not source or not dest:
                 raise ValueError("No custom_components directory found")
@@ -339,6 +370,8 @@ class Package:
             self.install_integration(hass_config_path)
         elif self.package_type == PackageType.FORK:
             self.install_fork_component(hass_config_path)
+        elif self.package_type == PackageType.THEME:
+            self.install_theme_component(hass_config_path)
         else:
             raise NotImplementedError(f"Unknown package type {self.package_type}")
 
@@ -400,13 +433,16 @@ def get_installed_packages(
     package_types: Iterable[PackageType] = (
         PackageType.INTEGRATION,
         PackageType.PLUGIN,
+        PackageType.THEME,
     ),
 ) -> list[Package]:
     # Integration packages
     packages: list[Package] = []
 
     if PackageType.INTEGRATION in package_types:
-        for custom_component in (hass_config_path / "custom_components").glob("*"):
+        for custom_component in get_install_path(
+            hass_config_path, PackageType.INTEGRATION
+        ).glob("*"):
             unhacs = custom_component / "unhacs.yaml"
             if unhacs.exists():
                 package = Package.from_yaml(yaml.safe_load(unhacs.open()))
@@ -415,11 +451,22 @@ def get_installed_packages(
 
     # Plugin packages
     if PackageType.PLUGIN in package_types:
-        for js_unhacs in (hass_config_path / "www" / "js").glob("*-unhacs.yaml"):
+        for js_unhacs in get_install_path(hass_config_path, PackageType.PLUGIN).glob(
+            "*-unhacs.yaml"
+        ):
             package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
             package.path = js_unhacs.with_name(
                 js_unhacs.name.removesuffix("-unhacs.yaml")
             )
+            packages.append(package)
+
+    # Theme packages
+    if PackageType.THEME in package_types:
+        for js_unhacs in get_install_path(hass_config_path, PackageType.THEME).glob(
+            "*.unhacs"
+        ):
+            package = Package.from_yaml(yaml.safe_load(js_unhacs.open()))
+            package.path = js_unhacs.with_name(js_unhacs.name.removesuffix(".unhacs"))
             packages.append(package)
 
     return packages
