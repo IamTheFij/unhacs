@@ -216,9 +216,9 @@ class Package:
 
         def real_get(filename) -> requests.Response | None:
             urls = [
-                f"https://raw.githubusercontent.com/{self.owner}/{self.version}/dist/{filename}",
+                f"https://raw.githubusercontent.com/{self.owner}/{self.name}/{self.version}/dist/{filename}",
                 f"https://github.com/{self.owner}/{self.name}/releases/download/{self.version}/{filename}",
-                f"https://raw.githubusercontent.com/{self.owner}/{self.version}/{filename}",
+                f"https://raw.githubusercontent.com/{self.owner}/{self.name}/{self.version}/{filename}",
             ]
 
             for url in urls:
