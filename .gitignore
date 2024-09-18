@@ -141,3 +141,5 @@ cython_debug/
 tags
 unhacs.txt
 poetry.lock
+custom_components/
+themes/

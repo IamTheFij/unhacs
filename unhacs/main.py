@@ -3,13 +3,17 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from unhacs.git import get_repo_tags
-from unhacs.packages import DEFAULT_HASS_CONFIG_PATH
-from unhacs.packages import DEFAULT_PACKAGE_FILE
 from unhacs.packages import Package
 from unhacs.packages import PackageType
 from unhacs.packages import get_installed_packages
 from unhacs.packages import read_lock_packages
 from unhacs.packages import write_lock_packages
+from unhacs.packages.fork import Fork
+from unhacs.packages.integration import Integration
+from unhacs.packages.plugin import Plugin
+from unhacs.packages.theme import Theme
+from unhacs.utils import DEFAULT_HASS_CONFIG_PATH
+from unhacs.utils import DEFAULT_PACKAGE_FILE
 
 
 def parse_args():
@@ -66,39 +70,39 @@ def parse_args():
         "--integration",
         action="store_const",
         dest="type",
-        const=PackageType.INTEGRATION,
-        default=PackageType.INTEGRATION,
+        const=Integration,
+        default=Integration,
         help="The package is an integration.",
     )
     package_type_group.add_argument(
         "--plugin",
         action="store_const",
         dest="type",
-        const=PackageType.PLUGIN,
+        const=Plugin,
         help="The package is a JavaScript plugin.",
-    )
-    package_type_group.add_argument(
-        "--forked-component",
-        type=str,
-        dest="component",
-        help="Component name from a forked type.",
     )
     package_type_group.add_argument(
         "--theme",
         action="store_const",
         dest="type",
-        const=PackageType.THEME,
+        const=Theme,
         help="The package is a theme.",
+    )
+    package_type_group.add_argument(
+        "--fork-component",
+        type=str,
+        help="Name of component from forked core repo.",
+    )
+    # Additional arguments for forked packages
+    add_parser.add_argument(
+        "--fork-branch",
+        "-b",
+        type=str,
+        help="Name of branch of forked core repo. (Only for forked components.)",
     )
 
     add_parser.add_argument(
         "--version", "-v", type=str, help="The version of the package."
-    )
-    add_parser.add_argument(
-        "--branch",
-        "-b",
-        type=str,
-        help="For forked types only, branch that should be used.",
     )
     add_parser.add_argument(
         "--update",
@@ -129,11 +133,11 @@ def parse_args():
 
     if args.subcommand == "add":
         # Component implies forked package
-        if args.component and args.type != PackageType.FORK:
-            args.type = PackageType.FORK
+        if args.fork_component and args.type != Fork:
+            args.type = Fork
 
         # Branch is only valid for forked packages
-        if args.type != PackageType.FORK and args.branch:
+        if args.type != Fork and args.fork_branch:
             raise ValueError(
                 "Branch and component can only be used with forked packages"
             )
@@ -231,7 +235,10 @@ class Unhacs:
             if (
                 package.name in package_names
                 or package.url in package_names
-                or package.fork_component in package_names
+                or (
+                    hasattr(package, "fork_component")
+                    and getattr(package, "fork_component") in package_names
+                )
             )
         ]
 
@@ -261,6 +268,30 @@ class Unhacs:
         self.write_lock_packages(remaining_packages)
 
 
+def args_to_package(args) -> Package:
+    ignore_versions = (
+        {version for version in args.ignore_versions.split(",")}
+        if args.ignore_versions
+        else None
+    )
+
+    if args.type == Fork:
+        if not args.fork_branch:
+            raise ValueError("A branch must be provided for forked components")
+        if not args.fork_component:
+            raise ValueError("A component must be provided for forked components")
+
+        return Fork(
+            args.url,
+            branch_name=args.fork_branch,
+            fork_component=args.fork_component,
+            version=args.version,
+            ignored_versions=ignore_versions,
+        )
+
+    return args.type(args.url, version=args.version, ignored_versions=ignore_versions)
+
+
 def main():
     # If the sub command is add package, it should pass the parsed arguments to the add_package function and return
     args = parse_args()
@@ -278,19 +309,9 @@ def main():
                     update=True,
                 )
         elif args.url:
+            new_package = args_to_package(args)
             unhacs.add_package(
-                Package(
-                    args.url,
-                    version=args.version,
-                    package_type=args.type,
-                    ignored_versions=(
-                        {version for version in args.ignore_versions.split(",")}
-                        if args.ignore_versions
-                        else None
-                    ),
-                    branch_name=args.branch,
-                    fork_component=args.component,
-                ),
+                new_package,
                 update=args.update,
             )
         else:
