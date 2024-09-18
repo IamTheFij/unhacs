@@ -24,7 +24,7 @@ lint: devenv
 # Runs tests
 .PHONY: test
 test: devenv
-	poetry run python -m unittest discover tests
+	poetry run python -m unittest discover tests --pattern "*_test.py"
 
 # Builds wheel for package to upload
 .PHONY: build
