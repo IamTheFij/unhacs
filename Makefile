@@ -37,6 +37,27 @@ verify-tag-version:
 	$(eval TAG_NAME = $(shell [ -n "$(DRONE_TAG)" ] && echo $(DRONE_TAG) || git describe --tags --exact-match))
 	test "v$(shell poetry version | awk '{print $$2}')" = "$(TAG_NAME)"
 
+.PHONY: bump-patch
+bump-patch:
+	$(eval NEW_VERSION = $(shell poetry version patch | awk '{print $$6}'))
+	git add pyproject.toml
+	git commit -m "Bump version to $(NEW_VERSION)"
+	git tag "v$(NEW_VERSION)"
+
+.PHONY: bump-minor
+bump-minor:
+	$(eval NEW_VERSION = $(shell poetry version minor | awk '{print $$6}'))
+	git add pyproject.toml
+	git commit -m "Bump version to $(NEW_VERSION)"
+	git tag "v$(NEW_VERSION)"
+
+.PHONY: bump-major
+bump-major:
+	$(eval NEW_VERSION = $(shell poetry version major | awk '{print $$6}'))
+	git add pyproject.toml
+	git commit -m "Bump version to $(NEW_VERSION)"
+	git tag "v$(NEW_VERSION)"
+
 # Upload to pypi
 .PHONY: upload
 upload: verify-tag-version build
