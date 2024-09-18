@@ -235,11 +235,18 @@ class Unhacs:
             )
         ]
 
-        if packages_to_remove and input("Remove all packages? (y/N) ").lower() != "y":
-            return
-
         if package_names and not packages_to_remove:
             print("No packages found to remove")
+            return
+
+        print("Packages to remove:")
+        for package in packages_to_remove:
+            print(package)
+
+        if (
+            packages_to_remove
+            and input("Remove listed packages? (y/N) ").lower() != "y"
+        ):
             return
 
         remaining_packages = [
