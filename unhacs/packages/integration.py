@@ -6,6 +6,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import requests
+import yaml
 
 from unhacs.git import get_tag_zip
 from unhacs.packages import Package
@@ -33,13 +34,16 @@ class Integration(Package):
         return hass_config_path / "custom_components"
 
     @classmethod
-    def find_installed(cls, hass_config_path: Path) -> list["Package"]:
+    def find_installed(cls, hass_config_path: Path) -> list[Package]:
         packages: list[Package] = []
 
         for custom_component in cls.get_install_dir(hass_config_path).glob("*"):
             unhacs = custom_component / "unhacs.yaml"
             if unhacs.exists():
-                package = cls.from_yaml(unhacs)
+                data = yaml.safe_load(unhacs.read_text())
+                if data["package_type"] == "fork":
+                    continue
+                package = cls.from_yaml(data)
                 package.path = custom_component
                 packages.append(package)
 
@@ -72,5 +76,6 @@ class Integration(Package):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.rmtree(dest, ignore_errors=True)
             shutil.move(source, dest)
+            self.path = dest
 
-            self.to_yaml(dest.joinpath("unhacs.yaml"))
+            self.to_yaml(self.unhacs_path)

@@ -26,6 +26,13 @@ class Plugin(Package):
     def get_install_dir(cls, hass_config_path: Path) -> Path:
         return hass_config_path / "www" / "js"
 
+    @property
+    def unhacs_path(self) -> Path | None:
+        if self.path is None:
+            return None
+
+        return self.path.with_name(f"{self.path.name}-unhacs.yaml")
+
     @classmethod
     def find_installed(cls, hass_config_path: Path) -> list["Package"]:
         packages: list[Package] = []
@@ -81,6 +88,8 @@ class Plugin(Package):
 
         js_path = self.get_install_dir(hass_config_path)
         js_path.mkdir(parents=True, exist_ok=True)
-        js_path.joinpath(filename).write_text(plugin.text)
 
-        self.to_yaml(js_path.joinpath(f"{filename}-unhacs.yaml"))
+        self.path = js_path.joinpath(filename)
+        self.path.write_text(plugin.text)
+
+        self.to_yaml(self.unhacs_path)

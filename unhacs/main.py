@@ -1,3 +1,4 @@
+import sys
 from argparse import ArgumentParser
 from collections.abc import Iterable
 from pathlib import Path
@@ -16,7 +17,15 @@ from unhacs.utils import DEFAULT_HASS_CONFIG_PATH
 from unhacs.utils import DEFAULT_PACKAGE_FILE
 
 
-def parse_args():
+class InvalidArgumentsError(ValueError):
+    pass
+
+
+class DuplicatePackageError(ValueError):
+    pass
+
+
+def parse_args(argv: list[str]):
     parser = ArgumentParser(
         description="Unhacs - Command line interface for the Home Assistant Community Store"
     )
@@ -121,15 +130,21 @@ def parse_args():
     remove_parser = subparsers.add_parser(
         "remove", description="Remove installed packages."
     )
+    remove_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Do not prompt for confirmation."
+    )
     remove_parser.add_argument("packages", nargs="+")
 
     # Upgrade packages
     update_parser = subparsers.add_parser(
         "upgrade", description="Upgrade installed packages."
     )
+    update_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Do not prompt for confirmation."
+    )
     update_parser.add_argument("packages", nargs="*")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.subcommand == "add":
         # Component implies forked package
@@ -138,7 +153,7 @@ def parse_args():
 
         # Branch is only valid for forked packages
         if args.type != Fork and args.fork_branch:
-            raise ValueError(
+            raise InvalidArgumentsError(
                 "Branch and component can only be used with forked packages"
             )
 
@@ -174,14 +189,14 @@ class Unhacs:
                 # Remove old version of the package
                 packages = [p for p in packages if p == existing_package]
             else:
-                raise ValueError("Package already exists in the list")
+                raise DuplicatePackageError("Package already exists in the list")
 
         package.install(self.hass_config)
 
         packages.append(package)
         self.write_lock_packages(packages)
 
-    def upgrade_packages(self, package_names: list[str]):
+    def upgrade_packages(self, package_names: list[str], yes: bool = False):
         """Uograde to latest version of packages and update lock."""
         installed_packages: Iterable[Package]
 
@@ -205,7 +220,8 @@ class Unhacs:
                 )
                 outdated_packages.append(latest_package)
 
-        if outdated_packages and input("Upgrade all packages? (y/N) ").lower() != "y":
+        confirmed = yes or input("Upgrade all packages? (y/N) ").lower() == "y"
+        if outdated_packages and not confirmed:
             return
 
         for installed_package in outdated_packages:
@@ -227,7 +243,7 @@ class Unhacs:
         for tag in get_repo_tags(url)[-1 * limit :]:
             print(tag)
 
-    def remove_packages(self, package_names: list[str]):
+    def remove_packages(self, package_names: list[str], yes: bool = False):
         """Remove installed packages and uodate lock."""
         packages_to_remove = [
             package
@@ -250,10 +266,8 @@ class Unhacs:
         for package in packages_to_remove:
             print(package)
 
-        if (
-            packages_to_remove
-            and input("Remove listed packages? (y/N) ").lower() != "y"
-        ):
+        confirmed = yes or input("Remove listed packages? (y/N) ").lower() == "y"
+        if packages_to_remove and not confirmed:
             return
 
         remaining_packages = [
@@ -277,9 +291,13 @@ def args_to_package(args) -> Package:
 
     if args.type == Fork:
         if not args.fork_branch:
-            raise ValueError("A branch must be provided for forked components")
+            raise InvalidArgumentsError(
+                "A branch must be provided for forked components"
+            )
         if not args.fork_component:
-            raise ValueError("A component must be provided for forked components")
+            raise InvalidArgumentsError(
+                "A component must be provided for forked components"
+            )
 
         return Fork(
             args.url,
@@ -292,9 +310,8 @@ def args_to_package(args) -> Package:
     return args.type(args.url, version=args.version, ignored_versions=ignore_versions)
 
 
-def main():
-    # If the sub command is add package, it should pass the parsed arguments to the add_package function and return
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv or sys.argv[1:])
 
     unhacs = Unhacs(args.config, args.package_file)
     Package.git_tags = args.git_tags
@@ -309,25 +326,36 @@ def main():
                     update=True,
                 )
         elif args.url:
-            new_package = args_to_package(args)
-            unhacs.add_package(
-                new_package,
-                update=args.update,
-            )
+            try:
+                new_package = args_to_package(args)
+            except InvalidArgumentsError as e:
+                print(e)
+                return 1
+            try:
+                unhacs.add_package(
+                    new_package,
+                    update=args.update,
+                )
+            except DuplicatePackageError as e:
+                print(e)
+                return 1
         else:
-            raise ValueError("Either a file or a URL must be provided")
+            print("Either a file or a URL must be provided")
+            return 1
     elif args.subcommand == "list":
         unhacs.list_packages(args.verbose)
     elif args.subcommand == "tags":
         unhacs.list_tags(args.url, limit=args.limit)
     elif args.subcommand == "remove":
-        unhacs.remove_packages(args.packages)
+        unhacs.remove_packages(args.packages, yes=args.yes)
     elif args.subcommand == "upgrade":
-        unhacs.upgrade_packages(args.packages)
+        unhacs.upgrade_packages(args.packages, yes=args.yes)
     else:
         print(f"Command {args.subcommand} is not implemented")
-        exit(1)
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())

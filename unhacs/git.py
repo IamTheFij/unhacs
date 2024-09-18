@@ -90,3 +90,7 @@ def get_tag_zip(repository_url: str, tag_name: str) -> str:
 
 def get_branch_zip(repository_url: str, branch_name: str) -> str:
     return f"{repository_url}/archive/{branch_name}.zip"
+
+
+def get_sha_zip(repository_url: str, sha: str) -> str:
+    return f"{repository_url}/archive/{sha}.zip"

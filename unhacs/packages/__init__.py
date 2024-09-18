@@ -41,6 +41,7 @@ def get_installed_packages(
     hass_config_path: Path = DEFAULT_HASS_CONFIG_PATH,
     package_types: Iterable[PackageType] = (
         PackageType.INTEGRATION,
+        PackageType.FORK,
         PackageType.PLUGIN,
         PackageType.THEME,
     ),
@@ -50,6 +51,9 @@ def get_installed_packages(
 
     if PackageType.INTEGRATION in package_types:
         packages.extend(Integration.find_installed(hass_config_path))
+
+    if PackageType.FORK in package_types:
+        packages.extend(Fork.find_installed(hass_config_path))
 
     # Plugin packages
     if PackageType.PLUGIN in package_types:
@@ -65,7 +69,8 @@ def get_installed_packages(
 # Read a list of Packages from a text file in the plain text format "URL version name"
 def read_lock_packages(package_file: Path = DEFAULT_PACKAGE_FILE) -> list[Package]:
     if package_file.exists():
-        return [from_yaml(p) for p in yaml.safe_load(package_file.open())["packages"]]
+        with package_file.open() as f:
+            return [from_yaml(p) for p in yaml.safe_load(f)["packages"]]
     return []
 
 
@@ -73,4 +78,5 @@ def read_lock_packages(package_file: Path = DEFAULT_PACKAGE_FILE) -> list[Packag
 def write_lock_packages(
     packages: Iterable[Package], package_file: Path = DEFAULT_PACKAGE_FILE
 ):
-    yaml.dump({"packages": [p.to_yaml() for p in packages]}, package_file.open("w"))
+    with open(package_file, "w") as f:
+        yaml.dump({"packages": [p.to_yaml() for p in packages]}, f)

@@ -51,7 +51,7 @@ class Package:
         return all(
             (
                 self.same(other),
-                # TODO: Should this match versions?
+                self.version == other.version,
             )
         )
 
@@ -71,14 +71,17 @@ class Package:
     @classmethod
     def from_yaml(cls, data: dict | Path | str) -> "Package":
         if isinstance(data, Path):
-            data = yaml.safe_load(data.open())
+            with data.open() as f:
+                data = yaml.safe_load(f)
         elif isinstance(data, str):
             data = yaml.safe_load(data)
 
         data = cast(dict, data)
 
-        if data["package_type"] != cls.package_type:
-            raise ValueError("Invalid package_type")
+        if (package_type := data.pop("package_type")) != cls.package_type:
+            raise ValueError(
+                f"Invalid package_type ({package_type}) for this class {cls.package_type}"
+            )
 
         return cls(data.pop("url"), **data)
 
@@ -97,7 +100,8 @@ class Package:
                 data[field] = getattr(self, field)
 
         if dest:
-            yaml.dump(self.to_yaml(), dest.open("w"))
+            with dest.open("w") as f:
+                yaml.dump(self.to_yaml(), f)
 
         return data
 
@@ -167,36 +171,28 @@ class Package:
     def install(self, hass_config_path: Path):
         raise NotImplementedError()
 
+    @property
+    def unhacs_path(self) -> Path | None:
+        if self.path is None:
+            return None
+
+        return self.path / "unhacs.yaml"
+
     def uninstall(self, hass_config_path: Path) -> bool:
         """Uninstalls the package if it is installed, returning True if it was uninstalled."""
         if not self.path:
-            print("No path found for package, searching...")
             if installed_package := self.installed_package(hass_config_path):
                 installed_package.uninstall(hass_config_path)
                 return True
 
             return False
 
-        print("Removing", self.path)
-
         if self.path.is_dir():
             shutil.rmtree(self.path)
         else:
             self.path.unlink()
-            self.path.with_name(f"{self.path.name}-unhacs.yaml").unlink()
-
-            # Remove from resources
-            resources_file = hass_config_path / "resources.yaml"
-            if resources_file.exists():
-                with resources_file.open("r") as f:
-                    resources = yaml.safe_load(f) or []
-                new_resources = [
-                    r for r in resources if r["url"] != f"/local/js/{self.path.name}"
-                ]
-                if len(new_resources) != len(resources):
-
-                    with resources_file.open("w") as f:
-                        yaml.dump(new_resources, f)
+            if self.unhacs_path and self.unhacs_path.exists():
+                self.unhacs_path.unlink()
 
         return True
 
@@ -225,4 +221,5 @@ class Package:
         """Returns a new Package representing the latest version of this package."""
         package = self.to_yaml()
         package.pop("version")
-        return Package(**package)
+        package.pop("package_type")
+        return self.__class__(package.pop("url"), **package)

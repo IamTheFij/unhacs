@@ -24,7 +24,7 @@ lint: devenv
 # Runs tests
 .PHONY: test
 test: devenv
-	@echo TODO: poetry run pytest
+	poetry run python -m unittest discover tests
 
 # Builds wheel for package to upload
 .PHONY: build

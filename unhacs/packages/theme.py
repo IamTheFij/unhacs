@@ -26,15 +26,20 @@ class Theme(Package):
     def get_install_dir(cls, hass_config_path: Path) -> Path:
         return hass_config_path / "themes"
 
+    @property
+    def unhacs_path(self) -> Path | None:
+        if self.path is None:
+            return None
+
+        return self.path.with_name(f"{self.path.name}.unhacs")
+
     @classmethod
     def find_installed(cls, hass_config_path: Path) -> list["Package"]:
         packages: list[Package] = []
 
-        for js_unhacs in cls.get_install_dir(hass_config_path).glob("*-unhacs.yaml"):
+        for js_unhacs in cls.get_install_dir(hass_config_path).glob("*.unhacs"):
             package = cls.from_yaml(js_unhacs)
-            package.path = js_unhacs.with_name(
-                js_unhacs.name.removesuffix("-unhacs.yaml")
-            )
+            package.path = js_unhacs.with_name(js_unhacs.name.removesuffix(".unhacs"))
             packages.append(package)
 
         return packages
@@ -52,6 +57,7 @@ class Theme(Package):
 
         themes_path = self.get_install_dir(hass_config_path)
         themes_path.mkdir(parents=True, exist_ok=True)
-        themes_path.joinpath(filename).write_text(theme.text)
+        self.path = themes_path.joinpath(filename)
+        self.path.write_text(theme.text)
 
-        self.to_yaml(themes_path.joinpath(f"{filename}.unhacs"))
+        self.to_yaml(self.unhacs_path)
