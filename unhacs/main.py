@@ -55,6 +55,12 @@ def parse_args(argv: list[str]):
     # List installed packages
     list_parser = subparsers.add_parser("list", description="List installed packages.")
     list_parser.add_argument("--verbose", "-v", action="store_true")
+    list_parser.add_argument(
+        "--freeze",
+        "-f",
+        action="store_true",
+        description="Regenerate unhacs.yaml with installed packages.",
+    )
 
     # List git tags for a given package
     list_tags_parser = subparsers.add_parser("tags", help="List tags for a package.")
@@ -233,10 +239,14 @@ class Unhacs:
 
         self.write_lock_packages(packages)
 
-    def list_packages(self, verbose: bool = False):
+    def list_packages(self, verbose: bool = False, freeze: bool = False):
         """List installed packages and their versions."""
-        for package in get_installed_packages():
+        installed_packages = get_installed_packages()
+        for package in installed_packages:
             print(package.verbose_str() if verbose else str(package))
+
+        if freeze:
+            self.write_lock_packages(installed_packages)
 
     def list_tags(self, url: str, limit: int = 10):
         print(f"Tags for {url}:")
@@ -343,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Either a file or a URL must be provided")
             return 1
     elif args.subcommand == "list":
-        unhacs.list_packages(args.verbose)
+        unhacs.list_packages(args.verbose, args.freeze)
     elif args.subcommand == "tags":
         unhacs.list_tags(args.url, limit=args.limit)
     elif args.subcommand == "remove":

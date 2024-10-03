@@ -6,6 +6,7 @@ from pathlib import Path
 
 from unhacs.main import main
 from unhacs.packages import get_installed_packages
+from unhacs.packages import read_lock_packages
 
 INTEGRATION_URL = "https://github.com/simbaja/ha_gehome"
 INTEGRATION_VERSION = "v0.6.9"
@@ -123,6 +124,30 @@ class TestMainIntegrarion(unittest.TestCase):
         self.assertEqual(len(installed), 1)
         self.assertEqual(installed[0].url, INTEGRATION_URL)
         self.assertEqual(installed[0].version, INTEGRATION_VERSION)
+
+        # Delete the custom_components folder and re-install the integration using the lock file
+        shutil.rmtree(os.path.join(self.test_dir, "custom_components"))
+        self.run_itest(
+            "Re-install integration using lock file",
+            "add --file unhacs.yaml",
+            expected_files=[
+                "custom_components/ge_home/__init__.py",
+                "custom_components/ge_home/manifest.json",
+                "custom_components/ge_home/switch.py",
+            ],
+        )
+
+        # Delete the lock file and then regenerate it
+        os.remove(os.path.join(self.test_dir, "unhacs.yaml"))
+        self.run_itest(
+            "Regenerate lock file",
+            "list --freeze",
+            expected_files=[
+                "unhacs.yaml",
+            ],
+        )
+
+        self.assertGreater(len(read_lock_packages()), 0)
 
         self.run_itest(
             "Remove integration",
