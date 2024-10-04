@@ -5,7 +5,6 @@ from pathlib import Path
 
 from unhacs.git import get_repo_tags
 from unhacs.packages import Package
-from unhacs.packages import PackageType
 from unhacs.packages import get_installed_packages
 from unhacs.packages import read_lock_packages
 from unhacs.packages import write_lock_packages
@@ -59,7 +58,7 @@ def parse_args(argv: list[str]):
         "--freeze",
         "-f",
         action="store_true",
-        description="Regenerate unhacs.yaml with installed packages.",
+        help="Regenerate unhacs.yaml with installed packages.",
     )
 
     # List git tags for a given package
