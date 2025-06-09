@@ -61,9 +61,15 @@ class Integration(Package):
 
             source, dest = None, None
             for custom_component in tmpdir.glob("custom_components/*"):
-                source = custom_component
-                dest = self.get_install_dir(hass_config_path) / custom_component.name
-                break
+                if (
+                    custom_component.is_dir()
+                    and (custom_component / "manifest.json").exists()
+                ):
+                    source = custom_component
+                    dest = (
+                        self.get_install_dir(hass_config_path) / custom_component.name
+                    )
+                    break
             else:
                 hacs_json = json.loads((tmpdir / "hacs.json").read_text())
                 if hacs_json.get("content_in_root"):
