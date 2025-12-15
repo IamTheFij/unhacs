@@ -12,7 +12,7 @@ run:
 
 .PHONY: install
 install:
-	poetry install
+	poetry install --with=dev
 
 .PHONY: devenv
 devenv: install
