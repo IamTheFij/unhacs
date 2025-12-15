@@ -1,0 +1,33 @@
+name: upload
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Set up poetry
+        run: |
+          pip install poetry
+          poetry config virtualenvs.create true --local
+          poetry config virtualenvs.in-project true --local
+
+      - name: Run test upload
+        env:
+          POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TEST_TOKEN }}"
+          POETRY_REPOSITORIES_TESTPYPI_URL: "https://test.pypi.org/legacy/"
+        run: make upload-test
+
+      - name: Run prod upload
+        env:
+          POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TOKEN }}"
+        run: make upload
