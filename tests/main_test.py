@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 import unittest
-from pathlib import Path
+from typing import override
 
 from unhacs.main import main
 from unhacs.packages import get_installed_packages
@@ -24,12 +24,14 @@ FORK_VERSION = "3b2893f2f4e16f9a05d9cc4a7ba9f31984c841be"
 
 
 class TestMainIntegrarion(unittest.TestCase):
-    test_dir: str
+    test_dir: str = "."
 
+    @override
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         os.chdir(self.test_dir)
 
+    @override
     def tearDown(self):
         shutil.rmtree(self.test_dir)
         pass
@@ -257,4 +259,4 @@ class TestMainIntegrarion(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

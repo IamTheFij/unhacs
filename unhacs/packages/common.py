@@ -1,9 +1,12 @@
 import shutil
+from abc import ABC
+from collections.abc import Iterable
 from enum import StrEnum
 from enum import auto
 from pathlib import Path
 from typing import Any
 from typing import cast
+from typing import override
 
 import requests
 import yaml
@@ -18,8 +21,8 @@ class PackageType(StrEnum):
     THEME = auto()
 
 
-class Package:
-    git_tags = False
+class Package(ABC):
+    git_tags: bool = False
     package_type: PackageType
 
     other_fields: list[str] = []
@@ -28,26 +31,34 @@ class Package:
         self,
         url: str,
         version: str | None = None,
-        ignored_versions: set[str] | None = None,
+        ignored_versions: Iterable[str] | None = None,
     ):
-        self.url = url
-        self.ignored_versions = ignored_versions or set()
+        self.url: str = url
+        self.ignored_versions: set[str] = (
+            set(ignored_versions) if ignored_versions else set()
+        )
 
         parts = self.url.split("/")
-        self.owner = parts[-2]
-        self.name = parts[-1]
+        self.owner: str = parts[-2]
+        self.name: str = parts[-1]
 
         self.path: Path | None = None
 
+        self.version: str
         if not version:
             self.version = self.fetch_version_release()
         else:
             self.version = version
 
+    @override
     def __str__(self):
         return f"{self.package_type}: {self.name} {self.version}"
 
-    def __eq__(self, other):
+    @override
+    def __eq__(self, other: object):
+        if not isinstance(other, Package):
+            return False
+
         return all(
             (
                 self.same(other),
@@ -55,11 +66,12 @@ class Package:
             )
         )
 
-    def same(self, other):
+    def same(self, other: "Package"):
         fields = list(["url"] + self.other_fields)
 
         return all((getattr(self, field) == getattr(other, field) for field in fields))
 
+    @override
     def __hash__(self):
         fields = list(["url"] + self.other_fields)
 
@@ -69,14 +81,14 @@ class Package:
         return f"{str(self)} ({self.url})"
 
     @classmethod
-    def from_yaml(cls, data: dict | Path | str) -> "Package":
+    def from_yaml(cls, data: dict[str, str] | Path | str) -> "Package":
         if isinstance(data, Path):
             with data.open() as f:
                 data = yaml.safe_load(f)
         elif isinstance(data, str):
             data = yaml.safe_load(data)
 
-        data = cast(dict, data)
+        data = cast(dict[str, str], data)
 
         if (package_type := data.pop("package_type")) != cls.package_type:
             raise ValueError(
@@ -85,7 +97,7 @@ class Package:
 
         return cls(data.pop("url"), **data)
 
-    def to_yaml(self, dest: Path | None = None) -> dict:
+    def to_yaml(self, dest: Path | None = None) -> dict[str, Any]:
         data: dict[str, Any] = {
             "url": self.url,
             "version": self.version,
@@ -101,7 +113,7 @@ class Package:
 
         if dest:
             with dest.open("w") as f:
-                yaml.dump(self.to_yaml(), f)
+                yaml.dump(data, f)
 
         return data
 
@@ -155,7 +167,7 @@ class Package:
     def _fetch_versions(self) -> list[str]:
         return get_repo_tags(self.url)
 
-    def get_hacs_json(self, version: str | None = None) -> dict:
+    def get_hacs_json(self, version: str | None = None) -> dict[str, Any]:
         """Fetches the hacs.json file for the package."""
         version = version or self.version
         response = requests.get(
@@ -166,9 +178,10 @@ class Package:
             return {}
 
         response.raise_for_status()
+
         return response.json()
 
-    def install(self, hass_config_path: Path):
+    def install(self, hass_config_path: Path) -> None:
         raise NotImplementedError()
 
     @property
@@ -182,8 +195,7 @@ class Package:
         """Uninstalls the package if it is installed, returning True if it was uninstalled."""
         if not self.path:
             if installed_package := self.installed_package(hass_config_path):
-                installed_package.uninstall(hass_config_path)
-                return True
+                return installed_package.uninstall(hass_config_path)
 
             return False
 

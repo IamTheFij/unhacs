@@ -1,14 +1,15 @@
 from pathlib import Path
 from typing import cast
+from typing import override
 
 import requests
 
-from unhacs.packages import Package
-from unhacs.packages import PackageType
+from unhacs.packages.common import Package
+from unhacs.packages.common import PackageType
 
 
 class Plugin(Package):
-    package_type = PackageType.PLUGIN
+    package_type: PackageType = PackageType.PLUGIN
 
     def __init__(
         self,
@@ -23,10 +24,12 @@ class Plugin(Package):
         )
 
     @classmethod
+    @override
     def get_install_dir(cls, hass_config_path: Path) -> Path:
         return hass_config_path / "www" / "js"
 
     @property
+    @override
     def unhacs_path(self) -> Path | None:
         if self.path is None:
             return None
@@ -34,6 +37,7 @@ class Plugin(Package):
         return self.path.with_name(f"{self.path.name}-unhacs.yaml")
 
     @classmethod
+    @override
     def find_installed(cls, hass_config_path: Path) -> list["Package"]:
         packages: list[Package] = []
 
@@ -46,12 +50,13 @@ class Plugin(Package):
 
         return packages
 
+    @override
     def install(self, hass_config_path: Path) -> None:
         """Installs the plugin package."""
 
         valid_filenames: list[str]
-        if filename := self.get_hacs_json().get("filename"):
-            valid_filenames = [cast(str, filename)]
+        if filename := cast(str | None, self.get_hacs_json().get("filename")):
+            valid_filenames = [filename]
         else:
             valid_filenames = [
                 f"{self.name.removeprefix('lovelace-')}.js",
@@ -60,7 +65,7 @@ class Plugin(Package):
                 f"{self.name}-bundle.js",
             ]
 
-        def real_get(filename) -> requests.Response | None:
+        def real_get(filename: str) -> requests.Response | None:
             urls = [
                 f"https://raw.githubusercontent.com/{self.owner}/{self.name}/{self.version}/dist/{filename}",
                 f"https://github.com/{self.owner}/{self.name}/releases/download/{self.version}/{filename}",
@@ -89,7 +94,7 @@ class Plugin(Package):
         js_path = self.get_install_dir(hass_config_path)
         js_path.mkdir(parents=True, exist_ok=True)
 
-        self.path = js_path.joinpath(filename)
-        self.path.write_text(plugin.text)
+        self.path: Path | None = js_path.joinpath(filename)
+        _ = self.path.write_text(plugin.text)
 
-        self.to_yaml(self.unhacs_path)
+        _ = self.to_yaml(self.unhacs_path)

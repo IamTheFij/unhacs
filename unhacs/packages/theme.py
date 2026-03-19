@@ -1,14 +1,15 @@
 from pathlib import Path
 from typing import cast
+from typing import override
 
 import requests
 
-from unhacs.packages import Package
-from unhacs.packages import PackageType
+from unhacs.packages.common import Package
+from unhacs.packages.common import PackageType
 
 
 class Theme(Package):
-    package_type = PackageType.THEME
+    package_type: PackageType = PackageType.THEME
 
     def __init__(
         self,
@@ -23,10 +24,12 @@ class Theme(Package):
         )
 
     @classmethod
+    @override
     def get_install_dir(cls, hass_config_path: Path) -> Path:
         return hass_config_path / "themes"
 
     @property
+    @override
     def unhacs_path(self) -> Path | None:
         if self.path is None:
             return None
@@ -34,6 +37,7 @@ class Theme(Package):
         return self.path.with_name(f"{self.path.name}.unhacs")
 
     @classmethod
+    @override
     def find_installed(cls, hass_config_path: Path) -> list["Package"]:
         packages: list[Package] = []
 
@@ -44,6 +48,7 @@ class Theme(Package):
 
         return packages
 
+    @override
     def install(self, hass_config_path: Path) -> None:
         """Install theme yaml."""
         filename = self.get_hacs_json().get("filename")
@@ -57,7 +62,7 @@ class Theme(Package):
 
         themes_path = self.get_install_dir(hass_config_path)
         themes_path.mkdir(parents=True, exist_ok=True)
-        self.path = themes_path.joinpath(filename)
-        self.path.write_text(theme.text)
+        self.path: Path | None = themes_path.joinpath(filename)
+        _ = self.path.write_text(theme.text)
 
-        self.to_yaml(self.unhacs_path)
+        _ = self.to_yaml(self.unhacs_path)
