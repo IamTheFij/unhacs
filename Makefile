@@ -66,6 +66,8 @@ upload: verify-tag-version build
 # Uses twine to upload to test pypi
 .PHONY: upload-test
 upload-test: verify-tag-version build
+	# Bump version to a post version based on commits since latest tag to prevent collisions
+	poetry version (git describe --tags | sed 's/-[0-9a-z]*$$//' | tr -d 'v')
 	poetry publish --repository testpypi
 
 # Cleans all build, runtime, and test artifacts
