@@ -60,6 +60,8 @@ jobs:
     if: "${{ github.event_name != 'pull_request' }}"
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@v6
