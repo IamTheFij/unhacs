@@ -1,14 +1,23 @@
 import shutil
+from abc import ABC
+from abc import abstractmethod
+from collections.abc import Iterable
 from enum import StrEnum
 from enum import auto
 from pathlib import Path
-from typing import Any
+from typing import NotRequired
+from typing import TypedDict
 from typing import cast
+from typing import override
 
 import requests
 import yaml
 
 from unhacs.git import get_repo_tags
+
+
+class IncorrectPackageError(ValueError):
+    pass
 
 
 class PackageType(StrEnum):
@@ -18,75 +27,148 @@ class PackageType(StrEnum):
     THEME = auto()
 
 
-class Package:
-    git_tags = False
-    package_type: PackageType
+class GithubRelease(TypedDict):
+    tag_name: str
 
+
+class PackageDict(TypedDict):
+    url: str
+    package_type: str
+    version: NotRequired[str]
+    ignored_versions: NotRequired[set[str]]
+
+
+class Package(ABC):
+    git_tags: bool = False
+    package_type: PackageType
     other_fields: list[str] = []
 
     def __init__(
         self,
         url: str,
         version: str | None = None,
-        ignored_versions: set[str] | None = None,
+        ignored_versions: Iterable[str] | None = None,
     ):
-        self.url = url
-        self.ignored_versions = ignored_versions or set()
+        self.url: str = url
+        self.ignored_versions: set[str] = (
+            set(ignored_versions) if ignored_versions else set()
+        )
 
         parts = self.url.split("/")
-        self.owner = parts[-2]
-        self.name = parts[-1]
+        self.owner: str = parts[-2]
+        self.name: str = parts[-1]
 
         self.path: Path | None = None
 
+        self.version: str
         if not version:
             self.version = self.fetch_version_release()
         else:
             self.version = version
 
-    def __str__(self):
-        return f"{self.package_type}: {self.name} {self.version}"
-
-    def __eq__(self, other):
-        return all(
-            (
-                self.same(other),
-                self.version == other.version,
-            )
-        )
-
-    def same(self, other):
-        fields = list(["url"] + self.other_fields)
-
-        return all((getattr(self, field) == getattr(other, field) for field in fields))
-
-    def __hash__(self):
-        fields = list(["url"] + self.other_fields)
-
-        return hash(tuple(getattr(self, field) for field in fields))
-
-    def verbose_str(self):
-        return f"{str(self)} ({self.url})"
+    @classmethod
+    @abstractmethod
+    def path_to_unhacs(cls, path: Path) -> Path:
+        """Transforms a Package path to an Unhacs path for the package."""
+        ...
 
     @classmethod
-    def from_yaml(cls, data: dict | Path | str) -> "Package":
-        if isinstance(data, Path):
-            with data.open() as f:
-                data = yaml.safe_load(f)
-        elif isinstance(data, str):
-            data = yaml.safe_load(data)
+    @abstractmethod
+    def unhacs_to_path(cls, path: Path) -> Path:
+        """Transforms an Unhacs path for the Package to the package path."""
+        ...
 
-        data = cast(dict, data)
+    @classmethod
+    @abstractmethod
+    def get_install_dir(cls, hass_config_path: Path) -> Path:
+        """Returns the path relative to the provided config directory this class should install into."""
+        ...
 
-        if (package_type := data.pop("package_type")) != cls.package_type:
-            raise ValueError(
+    @classmethod
+    @abstractmethod
+    def unhacs_glob_pattern(cls) -> str:
+        """Returns the glob pattern to find this package's unhacs.yaml file."""
+        ...
+
+    @abstractmethod
+    def install(self, hass_config_path: Path) -> None: ...
+
+    @override
+    def __str__(self):
+        """String representation of the Package."""
+        return f"{self.package_type}: {self.name} {self.version}"
+
+    def verbose_str(self):
+        """String representation of package with URL."""
+        return f"{str(self)} ({self.url})"
+
+    def _to_hashable(self) -> tuple[str, ...]:
+        """Convert Package into a hashable tuple."""
+        return (self.url,)
+
+    def same(self, other: "Package") -> bool:
+        """Check if two packages are the same, ignoring version."""
+        return self._to_hashable() == other._to_hashable()
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        """Determines if two Packages are identical."""
+        if not isinstance(other, Package):
+            return False
+
+        return self.same(other) and self.version == other.version
+
+    @override
+    def __hash__(self) -> int:
+        return hash(self._to_hashable())
+
+    @property
+    def unhacs_path(self) -> Path | None:
+        """Get the unhacs path from the Package path."""
+        if self.path is None:
+            return None
+
+        return self.path_to_unhacs(self.path)
+
+    @classmethod
+    def _read_yaml(cls, unhacs_path: Path | str) -> PackageDict:
+        """Reads from path and validates it matches the class type."""
+        if isinstance(unhacs_path, str):
+            unhacs_path = Path(unhacs_path)
+
+        with unhacs_path.open() as f:
+            data = cast(PackageDict, yaml.safe_load(f))
+
+        if (package_type := data.get("package_type", "unknown")) != cls.package_type:
+            raise IncorrectPackageError(
                 f"Invalid package_type ({package_type}) for this class {cls.package_type}"
             )
 
-        return cls(data.pop("url"), **data)
+        return data
 
-    def to_yaml(self, dest: Path | None = None) -> dict:
-        data: dict[str, Any] = {
+    @classmethod
+    def from_dict(cls, data: PackageDict) -> "Package":
+        """Creates a new Package instance from deserialized dict."""
+        return cls(
+            data["url"],
+            version=data.get("version"),
+            ignored_versions=data.get("ignored_versions"),
+        )
+
+    @classmethod
+    def from_yaml(cls, unhacs_path: Path | str) -> "Package":
+        """Reads serialized Package from path and creates a new instance."""
+        if isinstance(unhacs_path, str):
+            unhacs_path = Path(unhacs_path)
+
+        data = cls._read_yaml(unhacs_path)
+        new_package = cls.from_dict(data)
+        new_package.path = cls.unhacs_to_path(unhacs_path)
+
+        return new_package
+
+    def to_dict(self) -> PackageDict:
+        data: PackageDict = {
             "url": self.url,
             "version": self.version,
             "package_type": str(self.package_type),
@@ -95,13 +177,19 @@ class Package:
         if self.ignored_versions:
             data["ignored_versions"] = self.ignored_versions
 
-        for field in self.other_fields:
-            if hasattr(self, field):
-                data[field] = getattr(self, field)
+        return data
 
-        if dest:
-            with dest.open("w") as f:
-                yaml.dump(self.to_yaml(), f)
+    def to_yaml(self, dest: Path | None = None) -> PackageDict:
+        """Writes Package to yaml file at path and returns resulting dict."""
+        if dest is None:
+            dest = self.unhacs_path
+
+        if dest is None:
+            raise ValueError("Cannot serialize package without an unhacs path.")
+
+        data = self.to_dict()
+        with dest.open("w") as f:
+            yaml.dump(data, f)
 
         return data
 
@@ -114,7 +202,7 @@ class Package:
             f"https://api.github.com/repos/{self.owner}/{self.name}/releases"
         )
         response.raise_for_status()
-        releases = response.json()
+        releases = cast(list[GithubRelease], response.json())
 
         if not releases:
             raise ValueError(f"No releases found for package {self.name}")
@@ -131,17 +219,18 @@ class Package:
             else:
                 raise ValueError(f"Version {version} does not exist for this package")
 
-        return cast(str, desired_release["tag_name"])
+        return desired_release["tag_name"]
 
     def _fetch_version_release_git(self, version: str | None = None) -> str:
         tags = get_repo_tags(self.url)
         if not tags:
             raise ValueError(f"No tags found for package {self.name}")
+
         if version and version not in tags:
             raise ValueError(f"Version {version} does not exist for this package")
 
-        tags = [tag for tag in tags if tag not in self.ignored_versions]
         if not version:
+            tags = [tag for tag in tags if tag not in self.ignored_versions]
             version = tags[-1]
 
         return version
@@ -155,7 +244,7 @@ class Package:
     def _fetch_versions(self) -> list[str]:
         return get_repo_tags(self.url)
 
-    def get_hacs_json(self, version: str | None = None) -> dict:
+    def get_hacs_json(self, version: str | None = None) -> dict[str, str]:
         """Fetches the hacs.json file for the package."""
         version = version or self.version
         response = requests.get(
@@ -166,24 +255,30 @@ class Package:
             return {}
 
         response.raise_for_status()
-        return response.json()
 
-    def install(self, hass_config_path: Path):
-        raise NotImplementedError()
+        return cast(dict[str, str], response.json())
 
-    @property
-    def unhacs_path(self) -> Path | None:
-        if self.path is None:
-            return None
+    @classmethod
+    def find_installed(cls, hass_config_path: Path) -> list["Package"]:
+        packages: list[Package] = []
 
-        return self.path / "unhacs.yaml"
+        for unhacs_path in cls.get_install_dir(hass_config_path).glob(
+            cls.unhacs_glob_pattern()
+        ):
+            try:
+                package = cls.from_yaml(unhacs_path)
+                packages.append(package)
+            except IncorrectPackageError:
+                # We can skip this error since we're only reading optimistically
+                pass
+
+        return packages
 
     def uninstall(self, hass_config_path: Path) -> bool:
         """Uninstalls the package if it is installed, returning True if it was uninstalled."""
         if not self.path:
             if installed_package := self.installed_package(hass_config_path):
-                installed_package.uninstall(hass_config_path)
-                return True
+                return installed_package.uninstall(hass_config_path)
 
             return False
 
@@ -195,14 +290,6 @@ class Package:
                 self.unhacs_path.unlink()
 
         return True
-
-    @classmethod
-    def get_install_dir(cls, hass_config_path: Path) -> Path:
-        raise NotImplementedError()
-
-    @classmethod
-    def find_installed(cls, hass_config_path: Path) -> list["Package"]:
-        raise NotImplementedError()
 
     def installed_package(self, hass_config_path: Path) -> "Package|None":
         """Returns the installed package if it exists, otherwise None."""
@@ -219,7 +306,6 @@ class Package:
 
     def get_latest(self) -> "Package":
         """Returns a new Package representing the latest version of this package."""
-        package = self.to_yaml()
-        package.pop("version")
-        package.pop("package_type")
-        return self.__class__(package.pop("url"), **package)
+        package = self.to_dict()
+        del package["version"]
+        return self.__class__.from_dict(package)

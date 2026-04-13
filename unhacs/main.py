@@ -2,12 +2,14 @@ import sys
 from argparse import ArgumentParser
 from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
+from typing import cast
 
 from unhacs.git import get_repo_tags
-from unhacs.packages import Package
 from unhacs.packages import get_installed_packages
 from unhacs.packages import read_lock_packages
 from unhacs.packages import write_lock_packages
+from unhacs.packages.common import Package
 from unhacs.packages.fork import Fork
 from unhacs.packages.integration import Integration
 from unhacs.packages.plugin import Plugin
@@ -24,25 +26,45 @@ class DuplicatePackageError(ValueError):
     pass
 
 
-def parse_args(argv: list[str]):
+class UnhacsArgs(NamedTuple):
+    config: Path
+    package_file: Path
+    git_tags: bool
+    subcommand: str
+    verbose: bool = False
+    freeze: bool = False
+    url: str | None = None
+    limit: int = 10
+    file: Path | None = None
+    package_type: type[Package] | None = None
+    fork_component: str | None = None
+    fork_branch: str | None = None
+    version: str | None = None
+    update: bool = False
+    ignore_versions: str | None = None
+    yes: bool = False
+    packages: list[str] = []
+
+
+def parse_args(argv: list[str]) -> UnhacsArgs:
     parser = ArgumentParser(
         description="Unhacs - Command line interface for the Home Assistant Community Store"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--config",
         "-c",
         type=Path,
         default=DEFAULT_HASS_CONFIG_PATH,
         help="The path to the Home Assistant configuration directory.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--package-file",
         "-p",
         type=Path,
         default=DEFAULT_PACKAGE_FILE,
         help="The path to the package file.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--git-tags",
         "-g",
         action="store_true",
@@ -53,8 +75,8 @@ def parse_args(argv: list[str]):
 
     # List installed packages
     list_parser = subparsers.add_parser("list", description="List installed packages.")
-    list_parser.add_argument("--verbose", "-v", action="store_true")
-    list_parser.add_argument(
+    _ = list_parser.add_argument("--verbose", "-v", action="store_true")
+    _ = list_parser.add_argument(
         "--freeze",
         "-f",
         action="store_true",
@@ -63,8 +85,8 @@ def parse_args(argv: list[str]):
 
     # List git tags for a given package
     list_tags_parser = subparsers.add_parser("tags", help="List tags for a package.")
-    list_tags_parser.add_argument("url", type=str, help="The URL of the package.")
-    list_tags_parser.add_argument(
+    _ = list_tags_parser.add_argument("url", type=str, help="The URL of the package.")
+    _ = list_tags_parser.add_argument(
         "--limit", type=int, default=10, help="The number of tags to display."
     )
 
@@ -72,15 +94,15 @@ def parse_args(argv: list[str]):
     add_parser = subparsers.add_parser("add", description="Add or install packages.")
 
     package_group = add_parser.add_mutually_exclusive_group(required=True)
-    package_group.add_argument(
+    _ = package_group.add_argument(
         "--file", "-f", type=Path, help="The path to a package file."
     )
-    package_group.add_argument(
+    _ = package_group.add_argument(
         "url", nargs="?", type=str, help="The URL of the package."
     )
 
     package_type_group = add_parser.add_mutually_exclusive_group()
-    package_type_group.add_argument(
+    _ = package_type_group.add_argument(
         "--integration",
         action="store_const",
         dest="type",
@@ -88,43 +110,43 @@ def parse_args(argv: list[str]):
         default=Integration,
         help="The package is an integration.",
     )
-    package_type_group.add_argument(
+    _ = package_type_group.add_argument(
         "--plugin",
         action="store_const",
         dest="type",
         const=Plugin,
         help="The package is a JavaScript plugin.",
     )
-    package_type_group.add_argument(
+    _ = package_type_group.add_argument(
         "--theme",
         action="store_const",
         dest="type",
         const=Theme,
         help="The package is a theme.",
     )
-    package_type_group.add_argument(
+    _ = package_type_group.add_argument(
         "--fork-component",
         type=str,
         help="Name of component from forked core repo.",
     )
     # Additional arguments for forked packages
-    add_parser.add_argument(
+    _ = add_parser.add_argument(
         "--fork-branch",
         "-b",
         type=str,
         help="Name of branch of forked core repo. (Only for forked components.)",
     )
 
-    add_parser.add_argument(
+    _ = add_parser.add_argument(
         "--version", "-v", type=str, help="The version of the package."
     )
-    add_parser.add_argument(
+    _ = add_parser.add_argument(
         "--update",
         "-u",
         action="store_true",
         help="Update the package if it already exists.",
     )
-    add_parser.add_argument(
+    _ = add_parser.add_argument(
         "--ignore-versions",
         "-i",
         type=str,
@@ -135,34 +157,55 @@ def parse_args(argv: list[str]):
     remove_parser = subparsers.add_parser(
         "remove", description="Remove installed packages."
     )
-    remove_parser.add_argument(
+    _ = remove_parser.add_argument(
         "--yes", "-y", action="store_true", help="Do not prompt for confirmation."
     )
-    remove_parser.add_argument("packages", nargs="+")
+    _ = remove_parser.add_argument("packages", nargs="+")
 
     # Upgrade packages
     update_parser = subparsers.add_parser(
         "upgrade", description="Upgrade installed packages."
     )
-    update_parser.add_argument(
+    _ = update_parser.add_argument(
         "--yes", "-y", action="store_true", help="Do not prompt for confirmation."
     )
-    update_parser.add_argument("packages", nargs="*")
+    _ = update_parser.add_argument("packages", nargs="*")
 
     args = parser.parse_args(argv)
 
-    if args.subcommand == "add":
+    if cast(str, args.subcommand) == "add":
         # Component implies forked package
-        if args.fork_component and args.type != Fork:
+        if (
+            cast(str | None, args.fork_component)
+            and cast(type[Package], args.type) != Fork
+        ):
             args.type = Fork
 
         # Branch is only valid for forked packages
-        if args.type != Fork and args.fork_branch:
+        if args.type != Fork and cast(str | None, args.fork_branch):
             raise InvalidArgumentsError(
                 "Branch and component can only be used with forked packages"
             )
 
-    return args
+    return UnhacsArgs(
+        config=cast(Path, args.config),
+        package_file=cast(Path, args.package_file),
+        git_tags=cast(bool, args.git_tags),
+        subcommand=cast(str, args.subcommand),
+        verbose=getattr(args, "verbose", False),
+        freeze=getattr(args, "freeze", False),
+        url=getattr(args, "url", None),
+        limit=getattr(args, "limit", 10),
+        file=getattr(args, "file", None),
+        package_type=getattr(args, "type", None),
+        fork_component=getattr(args, "fork_component", None),
+        fork_branch=getattr(args, "fork_branch", None),
+        version=getattr(args, "version", None),
+        update=getattr(args, "update", False),
+        ignore_versions=getattr(args, "ignore_versions", None),
+        yes=getattr(args, "yes", False),
+        packages=getattr(args, "packages", []),
+    )  # ignore report any
 
 
 class Unhacs:
@@ -171,8 +214,8 @@ class Unhacs:
         hass_config: Path = DEFAULT_HASS_CONFIG_PATH,
         package_file: Path = DEFAULT_PACKAGE_FILE,
     ):
-        self.hass_config = hass_config
-        self.package_file = package_file
+        self.hass_config: Path = hass_config
+        self.package_file: Path = package_file
 
     def read_lock_packages(self) -> list[Package]:
         return read_lock_packages(self.package_file)
@@ -286,19 +329,25 @@ class Unhacs:
         ]
 
         for package in packages_to_remove:
-            package.uninstall(self.hass_config)
+            _ = package.uninstall(self.hass_config)
 
         self.write_lock_packages(remaining_packages)
 
 
-def args_to_package(args) -> Package:
+def args_to_package(args: UnhacsArgs) -> Package:
+    if not args.package_type:
+        raise InvalidArgumentsError("A package type must be provided")
+
+    if not args.url:
+        raise InvalidArgumentsError("A URL must be provided")
+
     ignore_versions = (
         {version for version in args.ignore_versions.split(",")}
         if args.ignore_versions
         else None
     )
 
-    if args.type == Fork:
+    if args.package_type == Fork:
         if not args.fork_branch:
             raise InvalidArgumentsError(
                 "A branch must be provided for forked components"
@@ -316,7 +365,9 @@ def args_to_package(args) -> Package:
             ignored_versions=ignore_versions,
         )
 
-    return args.type(args.url, version=args.version, ignored_versions=ignore_versions)
+    return args.package_type(
+        args.url, version=args.version, ignored_versions=ignore_versions
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -354,6 +405,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.subcommand == "list":
         unhacs.list_packages(args.verbose, args.freeze)
     elif args.subcommand == "tags":
+        if not args.url:
+            raise InvalidArgumentsError("A URL must be provided for the tags command")
+
         unhacs.list_tags(args.url, limit=args.limit)
     elif args.subcommand == "remove":
         unhacs.remove_packages(args.packages, yes=args.yes)

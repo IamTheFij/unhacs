@@ -1,6 +1,7 @@
 import re
 import subprocess
 from dataclasses import dataclass
+from typing import override
 
 
 @dataclass
@@ -30,13 +31,21 @@ class GitTag:
 
             return GitTag(name, version, suffix)
 
+    @override
     def __str__(self):
         return f"{self.name} {self.version}"
 
-    def __eq__(self, other):
+    @override
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, GitTag):
+            raise ValueError(f"Cannot compare GitTag with {type(other).__name__}")
+
         return self.version == other.version and self.suffix == other.suffix
 
-    def __lt__(self, other):
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, GitTag):
+            raise ValueError(f"Cannot compare GitTag with {type(other).__name__}")
+
         return self.version < other.version or (
             self.version == other.version and self.suffix < other.suffix
         )

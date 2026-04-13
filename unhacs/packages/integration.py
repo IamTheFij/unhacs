@@ -3,52 +3,44 @@ import shutil
 import tempfile
 from io import BytesIO
 from pathlib import Path
+from typing import cast
+from typing import override
 from zipfile import ZipFile
 
 import requests
-import yaml
 
 from unhacs.git import get_tag_zip
-from unhacs.packages import Package
-from unhacs.packages import PackageType
+from unhacs.packages.common import Package
+from unhacs.packages.common import PackageType
 from unhacs.utils import extract_zip
 
 
 class Integration(Package):
-    package_type = PackageType.INTEGRATION
+    package_type: PackageType = PackageType.INTEGRATION
 
-    def __init__(
-        self,
-        url: str,
-        version: str | None = None,
-        ignored_versions: set[str] | None = None,
-    ):
-        super().__init__(
-            url,
-            version=version,
-            ignored_versions=ignored_versions,
-        )
-
+    @override
     @classmethod
     def get_install_dir(cls, hass_config_path: Path) -> Path:
         return hass_config_path / "custom_components"
 
+    @override
     @classmethod
-    def find_installed(cls, hass_config_path: Path) -> list[Package]:
-        packages: list[Package] = []
+    def path_to_unhacs(cls, path: Path) -> Path:
+        """Get the unhacs path from the Package path."""
+        return path / "unhacs.yaml"
 
-        for custom_component in cls.get_install_dir(hass_config_path).glob("*"):
-            unhacs = custom_component / "unhacs.yaml"
-            if unhacs.exists():
-                data = yaml.safe_load(unhacs.read_text())
-                if data["package_type"] == "fork":
-                    continue
-                package = cls.from_yaml(data)
-                package.path = custom_component
-                packages.append(package)
+    @override
+    @classmethod
+    def unhacs_to_path(cls, path: Path) -> Path:
+        """Get the Plugin path from the Package unhacs path path."""
+        return path.parent
 
-        return packages
+    @override
+    @classmethod
+    def unhacs_glob_pattern(cls) -> str:
+        return "*/unhacs.yaml"
 
+    @override
     def install(self, hass_config_path: Path) -> None:
         """Installs the integration package."""
         zipball_url = get_tag_zip(self.url, self.version)
@@ -57,7 +49,7 @@ class Integration(Package):
 
         with tempfile.TemporaryDirectory(prefix="unhacs-") as tempdir:
             tmpdir = Path(tempdir)
-            extract_zip(ZipFile(BytesIO(response.content)), tmpdir)
+            _ = extract_zip(ZipFile(BytesIO(response.content)), tmpdir)
 
             source, dest = None, None
             for custom_component in tmpdir.glob("custom_components/*"):
@@ -71,7 +63,9 @@ class Integration(Package):
                     )
                     break
             else:
-                hacs_json = json.loads((tmpdir / "hacs.json").read_text())
+                hacs_json = cast(
+                    dict[str, str], json.loads((tmpdir / "hacs.json").read_text())
+                )
                 if hacs_json.get("content_in_root"):
                     source = tmpdir
                     dest = self.get_install_dir(hass_config_path) / self.name
@@ -79,9 +73,12 @@ class Integration(Package):
             if not source or not dest:
                 raise ValueError("No custom_components directory found")
 
+            # Write the integration directory
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.rmtree(dest, ignore_errors=True)
-            shutil.move(source, dest)
-            self.path = dest
+            _ = shutil.move(source, dest)
 
-            self.to_yaml(self.unhacs_path)
+            self.path: Path | None = dest
+
+            # Write the unhacs file
+            _ = self.to_yaml(self.unhacs_path)
