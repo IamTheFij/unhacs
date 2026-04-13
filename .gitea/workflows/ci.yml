@@ -1,8 +1,10 @@
-name: tests
+name: ci
 on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
@@ -50,4 +52,34 @@ jobs:
         run: make install
 
       - name: Run pre-commit
-        uses: https://git.iamthefij.com/iamthefij/pre-commit-action@v3.0.2
+        uses: https://git.iamthefij.com/iamthefij/pre-commit-action@v3.1.0
+
+  upload:
+    runs-on: ubuntu-latest
+    needs: test
+    if: "${{ github.event_name != 'pull_request' }}"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Set up poetry
+        run: |
+          pip install poetry
+          poetry config virtualenvs.create true --local
+          poetry config virtualenvs.in-project true --local
+
+      - name: Upload to test repo
+        env:
+          POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TEST_TOKEN }}"
+          POETRY_REPOSITORIES_TESTPYPI_URL: "https://test.pypi.org/legacy/"
+        run: make upload-test
+
+      - name: Upload to prod repo
+        if: "${{ github.ref_type == 'tag' }}"
+        env:
+          POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TOKEN }}"
+        run: make upload
