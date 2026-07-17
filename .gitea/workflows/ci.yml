@@ -78,7 +78,7 @@ jobs:
         env:
           POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TEST_TOKEN }}"
           POETRY_REPOSITORIES_TESTPYPI_URL: "https://test.pypi.org/legacy/"
-        run: make upload-test
+        run: make upload-test || true
 
       - name: Upload to prod repo
         if: "${{ github.ref_type == 'tag' }}"
