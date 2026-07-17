@@ -29,7 +29,13 @@ class PackageLock(TypedDict):
 
 def package_factory(data: PackageDict | Path | str) -> Package:
     if not isinstance(data, dict):
-        data = cast(PackageDict, yaml.safe_load(open(data)))
+        if isinstance(data, str):
+            data = Path(data)
+
+        if not data.is_file():
+            raise FileNotFoundError(f"Package file not found: {data}")
+
+        data = cast(PackageDict, yaml.safe_load(data.read_bytes()))
 
     # Convert package_type to enum
     package_type = PackageType(data["package_type"])
@@ -56,7 +62,7 @@ def get_installed_packages(
 # Read a list of Packages from a text file in the plain text format "URL version name"
 def read_lock_packages(package_file: Path = DEFAULT_PACKAGE_FILE) -> list[Package]:
     if package_file.exists():
-        package_lock = cast(PackageLock, yaml.safe_load(package_file.open()))
+        package_lock = cast(PackageLock, yaml.safe_load(package_file.read_bytes()))
         if "packages" not in package_lock:
             raise ValueError("Malformed unhacs.yaml lock file")
 
