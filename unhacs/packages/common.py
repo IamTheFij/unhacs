@@ -196,30 +196,22 @@ class Package(ABC):
     def add_ignored_version(self, version: str):
         self.ignored_versions.add(version)
 
-    def _fetch_version_release_releases(self, version: str | None = None) -> str:
-        # Fetch the releases from the GitHub API
-        response = requests.get(
-            f"https://api.github.com/repos/{self.owner}/{self.name}/releases"
-        )
+    def _fetch_version_release_releases(self, version_tag: str | None = None) -> str:
+        """Fetch the releases from the GitHub API."""
+        url = f"https://api.github.com/repos/{self.owner}/{self.name}/releases/latest"
+        if version_tag:
+            url = f"https://api.github.com/repos/{self.owner}/{self.name}/releases/tags/{version_tag}"
+
+        response = requests.get(url)
+        if response.status_code == 404:
+            print(
+                f"Release not found for {self.owner}/{self.name}: {version_tag or 'latest'}"
+            )
         response.raise_for_status()
-        releases = cast(list[GithubRelease], response.json())
 
-        if not releases:
-            raise ValueError(f"No releases found for package {self.name}")
+        release = cast(GithubRelease, response.json())
 
-        # Default to latest
-        desired_release = releases[0]
-
-        # If a version is provided, check if it exists in the releases
-        if version:
-            for release in releases:
-                if release["tag_name"] == version:
-                    desired_release = release
-                    break
-            else:
-                raise ValueError(f"Version {version} does not exist for this package")
-
-        return desired_release["tag_name"]
+        return release["tag_name"]
 
     def _fetch_version_release_git(self, version: str | None = None) -> str:
         tags = get_repo_tags(self.url)
@@ -240,9 +232,6 @@ class Package(ABC):
             return self._fetch_version_release_git(version)
         else:
             return self._fetch_version_release_releases(version)
-
-    def _fetch_versions(self) -> list[str]:
-        return get_repo_tags(self.url)
 
     def get_hacs_json(self, version: str | None = None) -> dict[str, str]:
         """Fetches the hacs.json file for the package."""

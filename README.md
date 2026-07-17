@@ -14,7 +14,7 @@ Unhacs provides several commands to manage your Home Assistant packages. It stor
 
 ### Add a package
 
-To add a package, use the `add` command followed by the URL of the package. Optionally, you can specify the package name and version. If no version is specified, the latest version will be installed:
+To add a package, use the `add` command followed by the URL of the package. Optionally, you can specify the package name and version. If no version is specified, the latest non-pre-release version will be installed:
 
 ```bash
 unhacs add <package_url>

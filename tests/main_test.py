@@ -68,6 +68,35 @@ class TestMainIntegrarion(unittest.TestCase):
                 if existing_files:
                     self.fail(f"Files should not exist: {existing_files}")
 
+    def test_ignore_pre_release(self):
+        package_url = "https://github.com/bramstroker/homeassistant-powercalc"
+        self.run_itest(
+            "Add integration with pre-releases",
+            f"add {package_url}",
+            expected_files=[
+                "custom_components/powercalc/__init__.py",
+            ],
+        )
+        self.run_itest(
+            "List installed packages",
+            "list",
+        )
+        installed = get_installed_packages()
+        self.assertEqual(len(installed), 1)
+        self.assertEqual(installed[0].url, package_url)
+        self.assertNotEqual(installed[0].version, "dev")
+
+        self.run_itest(
+            "Remove integration",
+            "remove homeassistant-powercalc --yes",
+            expect_missing_files=[
+                "custom_components/powercalc/__init__.py",
+            ],
+        )
+
+        installed = get_installed_packages()
+        self.assertEqual(len(installed), 0)
+
     def test_integration(self):
         self.run_itest(
             "Add integration",
