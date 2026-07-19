@@ -76,12 +76,12 @@ jobs:
 
       - name: Upload to test repo
         env:
-          POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TEST_TOKEN }}"
+          POETRY_PYPI_TOKEN_TESTPYPI: "${{ secrets.PYPI_TEST_TOKEN }}"
           POETRY_REPOSITORIES_TESTPYPI_URL: "https://test.pypi.org/legacy/"
         run: make upload-test || true
 
       - name: Upload to prod repo
         if: "${{ github.ref_type == 'tag' }}"
         env:
-          POETRY_PYPI_TOKEN: "${{ secrets.PYPI_TOKEN }}"
+          POETRY_PYPI_TOKEN_PYPI: "${{ secrets.PYPI_TOKEN }}"
         run: make upload
